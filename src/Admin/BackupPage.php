@@ -32,8 +32,22 @@ final class BackupPage
             $notice = self::handleAction();
         }
 
+        // Auto-advance a running job on each pageview. WP-Cron only fires when
+        // the site gets traffic, so on a quiet/admin-only site a backup would
+        // otherwise stall; ticking here means simply WATCHING this page pushes
+        // it forward one batch at a time (paired with the auto-refresh below).
+        if (Engine::status()['status'] === 'running') {
+            Engine::tick();
+        }
+        if (RestoreEngine::status()['status'] === 'running') {
+            RestoreEngine::tick();
+        }
+
         $job = Engine::status();
         $restore = RestoreEngine::status();
+        $liveJob =
+            ($job['status'] ?? '') === 'running' ||
+            ($restore['status'] ?? '') === 'running';
         $history = Engine::history();
         $inspectId = isset($_GET['rp_inspect']) ? sanitize_text_field((string) wp_unslash($_GET['rp_inspect'])) : '';
         $restoreId = isset($_GET['rp_restore']) ? sanitize_text_field((string) wp_unslash($_GET['rp_restore'])) : '';
@@ -68,6 +82,12 @@ final class BackupPage
             </aside>
         </div>
         <?php
+        if ($liveJob) {
+            // Keep watching → page reloads (GET) every 5s, and each load advances
+            // the job one batch via the auto-tick above. Progress moves live
+            // without depending on site traffic.
+            echo '<script>setTimeout(function(){window.location=window.location.pathname+window.location.search;},5000);</script>';
+        }
         Shell::footer('Backups run in small cron batches — no CPU spike. Stored under uploads/rolepod-wp/backups/ (HTTP-denied).');
         Shell::close();
     }
@@ -129,12 +149,16 @@ final class BackupPage
                     <div style="height:8px;border-radius:6px;background:var(--rp-surface-sunken);overflow:hidden;">
                         <div style="height:100%;width:<?php echo (int) $pct; ?>%;background:var(--rp-accent,#2563eb);transition:width .3s;"></div>
                     </div>
-                    <div style="margin-top:8px;font-size:12px;color:var(--rp-text-muted);">cron <?php echo !empty($job['scheduled']) ? 'scheduled' : 'idle'; ?> &middot; runs in background</div>
+                    <div style="margin-top:8px;font-size:12px;color:var(--rp-text-muted);line-height:1.5;">
+                        Advancing in the background while you watch — auto-refreshes every 5s.
+                        It also continues on a cron tick when the site gets traffic.
+                        <strong>Run a batch now</strong> pushes it forward immediately (no need to wait).
+                    </div>
                 <?php endif; ?>
                 <form method="post" style="margin-top:12px;display:flex;gap:6px;">
                     <?php wp_nonce_field(self::NONCE_ACTION, 'rolepod_wp_backup_nonce'); ?>
                     <?php if ($status === 'running'): ?>
-                        <button type="submit" name="backup_action" value="run_now" class="rp-btn rp-btn-sm">Process now</button>
+                        <button type="submit" name="backup_action" value="run_now" class="rp-btn rp-btn-sm">Run a batch now</button>
                     <?php endif; ?>
                     <button type="submit" name="backup_action" value="cancel" class="rp-btn rp-btn-sm rp-btn-ghost" data-rp-confirm="Cancel this backup? Partial archive is discarded.">Cancel</button>
                 </form>
@@ -363,7 +387,7 @@ final class BackupPage
                 <form method="post" style="margin-top:12px;display:flex;gap:6px;">
                     <?php wp_nonce_field(self::NONCE_ACTION, 'rolepod_wp_backup_nonce'); ?>
                     <?php if ($status === 'running'): ?>
-                        <button type="submit" name="backup_action" value="restore_run_now" class="rp-btn rp-btn-sm">Process now</button>
+                        <button type="submit" name="backup_action" value="restore_run_now" class="rp-btn rp-btn-sm">Run a batch now</button>
                     <?php endif; ?>
                     <button type="submit" name="backup_action" value="restore_cancel" class="rp-btn rp-btn-sm rp-btn-ghost">Dismiss</button>
                 </form>

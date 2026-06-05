@@ -5,7 +5,7 @@
  * Description:       The WordPress arm of the Rolepod ecosystem (https://github.com/nuttaruj/rolepod). Exposes guarded REST endpoints so AI coding agents (Claude Code / Cursor / Codex / Gemini) — driven by the rolepod-wplab MCP server — can run runtime introspection, the one-click pair wizard, and (with explicit opt-in) execute-php on this WordPress install. Endpoints are OFF by default; enable per-feature in Settings → Rolepod for WordPress. v2.6 adds a mu-plugin recovery guardian that survives main-plugin parse/fatal errors.
  * Author:            nuttaruj
  * Author URI:        https://github.com/nuttaruj
- * Version:           2.18.1
+ * Version:           2.18.2
  * Requires at least: 6.0
  * Requires PHP:      7.4
  * License:           MIT
@@ -21,7 +21,7 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-define('ROLEPOD_WP_VERSION', '2.18.1');
+define('ROLEPOD_WP_VERSION', '2.18.2');
 define('ROLEPOD_WP_FILE', __FILE__);
 define('ROLEPOD_WP_DIR', plugin_dir_path(__FILE__));
 
