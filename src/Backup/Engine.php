@@ -33,7 +33,15 @@ final class Engine
     private const LOCK_TTL = 300;
     private const MAX_FILES = 200_000;
 
-    private const DEFAULT_EXCLUDES = ['.git', 'node_modules', '.DS_Store', 'rolepod-wp/backups', 'wplab-tmp', 'cache/'];
+    private const DEFAULT_EXCLUDES = [
+        '.git', 'node_modules', '.DS_Store', 'cache/',
+        // Rolepod's own regenerable runtime artifacts — not site content, and
+        // they bloat the archive badly (theme snapshots + the bundled wp-cli
+        // phar can be tens of MB). Never back these up by default.
+        'rolepod-wp/backups', 'rolepod-wp/tmp', 'rolepod-wp-theme-snapshots',
+        'rolepod-wp-audit', 'wplab-tmp', 'wplab-bin', 'wplab-backups',
+        '.rolepod-jobs',
+    ];
 
     /**
      * Start a new backup. Replaces any finished job; refuses if one is running.

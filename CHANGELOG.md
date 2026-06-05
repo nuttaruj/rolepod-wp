@@ -4,6 +4,21 @@ All notable changes to this plugin are documented here. Follows [Keep a Changelo
 
 Plugin versions track `@rolepod/wplab` MCP family. See `MIN_COMPANION_VERSION` in `rolepod-wplab/src/companion/constants.ts` for the floor the MCP client expects.
 
+## [2.18.1] — 2026-06-05 — Backup "View" folder tree + leaner default excludes
+
+### Changed
+
+- The backup admin "Browse" action is now **"View"** and renders a **folder
+  tree** — top-level folders with aggregated sizes + file counts (and a size
+  bar), read from the zip index without extracting — instead of a flat list of
+  every entry. Collapses the thousands of leaf files into their main folders.
+  `src/Admin/BackupPage.php`.
+- **Leaner default backup excludes.** Rolepod's own regenerable runtime
+  artifacts are now skipped by default — theme snapshots, the bundled wp-cli
+  phar, audit logs, async-job spool, and prior backups. On a real demo this cut
+  a backup from **47 MB → 1.5 MB** (the bulk was 44.5 MB of theme snapshots +
+  a 6.8 MB wp-cli phar that are not site content). `src/Backup/Engine.php`.
+
 ## [2.18.0] — 2026-06-05 — Backup restore (phase 2) + serialized-safe URL rewrite
 
 ### Added
