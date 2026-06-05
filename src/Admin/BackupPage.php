@@ -150,16 +150,11 @@ final class BackupPage
                         <div style="height:100%;width:<?php echo (int) $pct; ?>%;background:var(--rp-accent,#2563eb);transition:width .3s;"></div>
                     </div>
                     <div style="margin-top:8px;font-size:12px;color:var(--rp-text-muted);line-height:1.5;">
-                        Advancing in the background while you watch — auto-refreshes every 5s.
-                        It also continues on a cron tick when the site gets traffic.
-                        <strong>Run a batch now</strong> pushes it forward immediately (no need to wait).
+                        Running automatically in small batches — this page updates live. You can leave it open or come back later.
                     </div>
                 <?php endif; ?>
                 <form method="post" style="margin-top:12px;display:flex;gap:6px;">
                     <?php wp_nonce_field(self::NONCE_ACTION, 'rolepod_wp_backup_nonce'); ?>
-                    <?php if ($status === 'running'): ?>
-                        <button type="submit" name="backup_action" value="run_now" class="rp-btn rp-btn-sm">Run a batch now</button>
-                    <?php endif; ?>
                     <button type="submit" name="backup_action" value="cancel" class="rp-btn rp-btn-sm rp-btn-ghost" data-rp-confirm="Cancel this backup? Partial archive is discarded.">Cancel</button>
                 </form>
             </div>
@@ -384,11 +379,11 @@ final class BackupPage
                         <div style="height:100%;width:<?php echo (int) $pct; ?>%;background:var(--rp-accent,#2563eb);transition:width .3s;"></div>
                     </div>
                 <?php endif; ?>
+                <?php if ($status === "running"): ?>
+                    <div style="margin-top:8px;font-size:12px;color:var(--rp-text-muted);">Running automatically — this page updates live.</div>
+                <?php endif; ?>
                 <form method="post" style="margin-top:12px;display:flex;gap:6px;">
                     <?php wp_nonce_field(self::NONCE_ACTION, 'rolepod_wp_backup_nonce'); ?>
-                    <?php if ($status === 'running'): ?>
-                        <button type="submit" name="backup_action" value="restore_run_now" class="rp-btn rp-btn-sm">Run a batch now</button>
-                    <?php endif; ?>
                     <button type="submit" name="backup_action" value="restore_cancel" class="rp-btn rp-btn-sm rp-btn-ghost">Dismiss</button>
                 </form>
             </div>
@@ -483,9 +478,6 @@ final class BackupPage
                 // Run the first chunk synchronously so progress shows immediately.
                 Engine::tick();
                 return ['type' => 'success', 'message' => 'Backup started — running in the background.'];
-            case 'run_now':
-                Engine::tick();
-                return ['type' => 'info', 'message' => 'Processed one batch.'];
             case 'cancel':
                 Engine::cancel();
                 return ['type' => 'info', 'message' => 'Backup cancelled.'];
@@ -500,9 +492,6 @@ final class BackupPage
                 return ['type' => 'warning', 'message' => 'Backup not found.'];
             case 'restore':
                 return self::handleRestore();
-            case 'restore_run_now':
-                RestoreEngine::tick();
-                return ['type' => 'info', 'message' => 'Processed one restore batch.'];
             case 'restore_cancel':
                 RestoreEngine::cancel();
                 return ['type' => 'info', 'message' => 'Restore dismissed.'];
