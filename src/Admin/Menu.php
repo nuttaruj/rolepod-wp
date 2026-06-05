@@ -22,6 +22,7 @@ final class Menu
     public const SLUG_SETUP     = 'rolepod-wp';
     public const SLUG_CHANGES   = 'rolepod-wp-changes';
     public const SLUG_MEDIA     = 'rolepod-wp-media';
+    public const SLUG_BACKUP    = 'rolepod-wp-backup';
     public const SLUG_SETTINGS  = 'rolepod-wp-settings';
 
     public static function register(): void
@@ -60,6 +61,14 @@ final class Menu
             $cap,
             self::SLUG_MEDIA,
             [MediaPage::class, 'render']
+        );
+        add_submenu_page(
+            self::PARENT_SLUG,
+            'Rolepod WP — Backup',
+            'Backup',
+            $cap,
+            self::SLUG_BACKUP,
+            [BackupPage::class, 'render']
         );
         add_submenu_page(
             self::PARENT_SLUG,

@@ -41,6 +41,7 @@ final class Shell
             ['slug' => Menu::SLUG_SETUP,    'label' => 'Setup',    'icon' => self::iconSparkle()],
             ['slug' => Menu::SLUG_CHANGES,  'label' => 'Changes',  'icon' => self::iconList()],
             ['slug' => Menu::SLUG_MEDIA,    'label' => 'Media',    'icon' => self::iconImage()],
+            ['slug' => Menu::SLUG_BACKUP,   'label' => 'Backup',   'icon' => self::iconArchive()],
             ['slug' => Menu::SLUG_SETTINGS, 'label' => 'Settings', 'icon' => self::iconCog()],
         ];
 
@@ -107,6 +108,11 @@ final class Shell
     private static function iconImage(): string
     {
         return '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="8.5" cy="9.5" r="1.5"/><path d="m21 16-5-5L5 20"/></svg>';
+    }
+
+    private static function iconArchive(): string
+    {
+        return '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="4" rx="1"/><path d="M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8M10 12h4"/></svg>';
     }
 
     private static function iconCog(): string

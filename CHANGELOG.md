@@ -4,6 +4,39 @@ All notable changes to this plugin are documented here. Follows [Keep a Changelo
 
 Plugin versions track `@rolepod/wplab` MCP family. See `MIN_COMPANION_VERSION` in `rolepod-wplab/src/companion/constants.ts` for the floor the MCP client expects.
 
+## [2.17.0] — 2026-06-05 — Throttled site backup (phase 1: create + browse)
+
+### Added
+
+- **Backup admin page** (new submenu) + **throttled background backup engine.**
+  Creates a single ZIP per backup under `uploads/rolepod-wp/backups/` containing
+  `manifest.json` (self-describing index), `database.sql`, `database.meta.json`,
+  and `files/` mirroring wp-content. Pick components (db / uploads / themes /
+  plugins / mu-plugins); list, browse-inside, download, and delete backups.
+- **AI-friendly ZIP format** (vs an opaque single-blob). ZIP is the only common
+  container that is BOTH small AND browsable-without-extracting: its central
+  directory lets us list contents and read one member (e.g. `manifest.json` or
+  `database.sql`) without unpacking — `Archive::listEntries` / `readEntry`,
+  surfaced in the admin "Browse inside" view and the `backup-inspect` endpoint.
+  Per-entry compression keeps CPU low: already-compressed media is STORED,
+  text/SQL is DEFLATED. `src/Backup/Archive.php`.
+- **Throttled, resumable engine** — a state machine (db → files → finalize)
+  driven by a WP-Cron tick that processes only a small chunk per run (≤500 DB
+  rows / ≤40 files), sleeps between, and yields after ~8s, so a large site backs
+  up gradually without spiking CPU. State persists every tick (crash-safe),
+  a transient lock prevents overlapping ticks. `src/Backup/Engine.php`,
+  `Db.php`, `Manifest.php`.
+- **Backup REST surface** for the MCP/AI: `backup-start` / `-status` / `-list` /
+  `-inspect` (list or read a member, no extract) / `-cancel` / `-delete`.
+  `src/Endpoint/Backup.php`.
+
+Phase 1 is create + inspect only; restore is a later phase.
+
+### Tests
+
+- `tests/Unit/backup-archive-test.php` (14) — incremental build, browse/read
+  without extract, per-entry STORE/DEFLATE selection.
+
 ## [2.16.0] — 2026-06-05 — Media admin page + throttled background queue
 
 ### Added
