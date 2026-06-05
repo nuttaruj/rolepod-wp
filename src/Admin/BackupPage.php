@@ -32,17 +32,6 @@ final class BackupPage
             $notice = self::handleAction();
         }
 
-        // Auto-advance a running job on each pageview. WP-Cron only fires when
-        // the site gets traffic, so on a quiet/admin-only site a backup would
-        // otherwise stall; ticking here means simply WATCHING this page pushes
-        // it forward one batch at a time (paired with the auto-refresh below).
-        if (Engine::status()['status'] === 'running') {
-            Engine::tick();
-        }
-        if (RestoreEngine::status()['status'] === 'running') {
-            RestoreEngine::tick();
-        }
-
         $job = Engine::status();
         $restore = RestoreEngine::status();
         $liveJob =
@@ -83,13 +72,89 @@ final class BackupPage
         </div>
         <?php
         if ($liveJob) {
-            // Keep watching → page reloads (GET) every 5s, and each load advances
-            // the job one batch via the auto-tick above. Progress moves live
-            // without depending on site traffic.
-            echo '<script>setTimeout(function(){window.location=window.location.pathname+window.location.search;},5000);</script>';
+            self::livePollScript();
         }
         Shell::footer('Backups run in small cron batches — no CPU spike. Stored under uploads/rolepod-wp/backups/ (HTTP-denied).');
         Shell::close();
+    }
+
+    /**
+     * In-place live progress via AJAX polling — no page reload. Updates the
+     * progress bar + numbers smoothly while the loopback chain does the work
+     * server-side; reloads once only when the job finishes (to refresh the
+     * backup list / clear the running card).
+     */
+    private static function livePollScript(): void
+    {
+        $nonce = wp_create_nonce(self::NONCE_ACTION . '_poll');
+        ?>
+        <script>
+        (function () {
+            var nonce = <?php echo wp_json_encode($nonce); ?>;
+            var url = (window.ajaxurl || '<?php echo esc_js(admin_url('admin-ajax.php')); ?>');
+            function fmtBytes(n) {
+                if (!n) return '0 B';
+                var u = ['B', 'KB', 'MB', 'GB'], i = 0;
+                while (n >= 1024 && i < u.length - 1) { n /= 1024; i++; }
+                return (Math.round(n * 10) / 10) + ' ' + u[i];
+            }
+            function apply(prefix, s) {
+                if (!s) return;
+                var bar = document.getElementById(prefix + '-bar');
+                var pct = document.getElementById(prefix + '-pct');
+                var stat = document.getElementById(prefix + '-stat');
+                if (bar) bar.style.width = (s.percent | 0) + '%';
+                if (pct) pct.textContent = (s.percent | 0) + '%';
+                if (stat && s.line) stat.textContent = s.line;
+            }
+            function poll() {
+                fetch(url + '?action=rolepod_wp_backup_poll&_wpnonce=' + encodeURIComponent(nonce), { credentials: 'same-origin' })
+                    .then(function (r) { return r.json(); })
+                    .then(function (d) {
+                        apply('rp-bk', d.backup);
+                        apply('rp-rs', d.restore);
+                        var live = (d.backup && d.backup.status === 'running') || (d.restore && d.restore.status === 'running');
+                        if (live) { setTimeout(poll, 1200); }
+                        else { window.location = window.location.pathname + window.location.search; }
+                    })
+                    .catch(function () { setTimeout(poll, 3000); });
+            }
+            setTimeout(poll, 1200);
+        })();
+        </script>
+        <?php
+    }
+
+    /**
+     * admin-ajax: compact live status for the poller. Read-only, but it also
+     * re-arms the loopback chain so progress keeps flowing while the page is
+     * open even if the original loopback was dropped by the host.
+     */
+    public static function ajaxPoll(): void
+    {
+        if (!current_user_can('manage_options') || !wp_verify_nonce((string) ($_REQUEST['_wpnonce'] ?? ''), self::NONCE_ACTION . '_poll')) {
+            wp_send_json_error([], 403);
+        }
+        $b = Engine::status();
+        $r = RestoreEngine::status();
+        if (($b['status'] ?? '') === 'running') {
+            Engine::spawnLoopback();
+        }
+        if (($r['status'] ?? '') === 'running') {
+            RestoreEngine::spawnLoopback();
+        }
+        wp_send_json([
+            'backup' => [
+                'status' => $b['status'] ?? 'idle',
+                'percent' => (int) ($b['percent'] ?? 0),
+                'line' => (int) ($b['stats']['files_count'] ?? 0) . ' files · ' . (int) ($b['db_progress']['rows'] ?? 0) . ' rows',
+            ],
+            'restore' => [
+                'status' => $r['status'] ?? 'idle',
+                'percent' => (int) ($r['percent'] ?? 0),
+                'line' => (int) ($r['db']['statements'] ?? 0) . ' stmts · ' . (int) ($r['files']['restored'] ?? 0) . ' files',
+            ],
+        ]);
     }
 
     private static function renderStartCard(array $job): void
@@ -143,11 +208,11 @@ final class BackupPage
                     <div class="rp-tl-err"><?php echo esc_html((string) ($job['error'] ?? 'unknown error')); ?></div>
                 <?php else: ?>
                     <div style="display:flex;justify-content:space-between;font-size:12.5px;margin-bottom:6px;">
-                        <span><?php echo esc_html((string) ($job['stats']['files_count'] ?? 0)); ?> files &middot; <?php echo esc_html((string) ($job['db_progress']['rows'] ?? 0)); ?> rows</span>
-                        <span class="rp-mono"><?php echo (int) $pct; ?>%</span>
+                        <span id="rp-bk-stat"><?php echo esc_html((string) ($job['stats']['files_count'] ?? 0)); ?> files &middot; <?php echo esc_html((string) ($job['db_progress']['rows'] ?? 0)); ?> rows</span>
+                        <span class="rp-mono" id="rp-bk-pct"><?php echo (int) $pct; ?>%</span>
                     </div>
                     <div style="height:8px;border-radius:6px;background:var(--rp-surface-sunken);overflow:hidden;">
-                        <div style="height:100%;width:<?php echo (int) $pct; ?>%;background:var(--rp-accent,#2563eb);transition:width .3s;"></div>
+                        <div id="rp-bk-bar" style="height:100%;width:<?php echo (int) $pct; ?>%;background:var(--rp-accent,#2563eb);transition:width .6s ease;"></div>
                     </div>
                     <div style="margin-top:8px;font-size:12px;color:var(--rp-text-muted);line-height:1.5;">
                         Running automatically in small batches — keeps going even if you close this page. This view just shows live progress.
@@ -372,11 +437,11 @@ final class BackupPage
                     <div class="rp-tl-err"><?php echo esc_html((string) ($r['error'] ?? 'unknown error')); ?></div>
                 <?php else: ?>
                     <div style="display:flex;justify-content:space-between;font-size:12.5px;margin-bottom:6px;">
-                        <span><?php echo (int) ($r['db']['statements'] ?? 0); ?> SQL stmts &middot; <?php echo (int) ($r['files']['restored'] ?? 0); ?> files &middot; <?php echo (int) ($r['rewrite']['rows_changed'] ?? 0); ?> rows rewritten</span>
-                        <span class="rp-mono"><?php echo (int) $pct; ?>%</span>
+                        <span id="rp-rs-stat"><?php echo (int) ($r['db']['statements'] ?? 0); ?> SQL stmts &middot; <?php echo (int) ($r['files']['restored'] ?? 0); ?> files &middot; <?php echo (int) ($r['rewrite']['rows_changed'] ?? 0); ?> rows rewritten</span>
+                        <span class="rp-mono" id="rp-rs-pct"><?php echo (int) $pct; ?>%</span>
                     </div>
                     <div style="height:8px;border-radius:6px;background:var(--rp-surface-sunken);overflow:hidden;">
-                        <div style="height:100%;width:<?php echo (int) $pct; ?>%;background:var(--rp-accent,#2563eb);transition:width .3s;"></div>
+                        <div id="rp-rs-bar" style="height:100%;width:<?php echo (int) $pct; ?>%;background:var(--rp-accent,#2563eb);transition:width .6s ease;"></div>
                     </div>
                 <?php endif; ?>
                 <?php if ($status === "running"): ?>

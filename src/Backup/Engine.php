@@ -230,6 +230,10 @@ final class Engine
                 $job['db']['roffset'] = 0;
                 $job['stats']['db_tables']++;
             }
+            // Persist per batch so the live poll sees the DB stage move smoothly
+            // (durable: the SQL is already appended to the temp file, roffset
+            // marks our position).
+            update_option(self::JOB_OPTION, $job, false);
             usleep(self::SLEEP_US);
         }
 

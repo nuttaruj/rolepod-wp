@@ -4,6 +4,33 @@ All notable changes to this plugin are documented here. Follows [Keep a Changelo
 
 Plugin versions track `@rolepod/wplab` MCP family. See `MIN_COMPANION_VERSION` in `rolepod-wplab/src/companion/constants.ts` for the floor the MCP client expects.
 
+## [2.19.1] — 2026-06-05 — Smooth live progress (AJAX poll, no page reload)
+
+### Changed
+
+- The backup/restore progress bar now updates **in place via a ~1.2s AJAX poll**
+  (admin-ajax `rolepod_wp_backup_poll`) and a CSS transition, instead of
+  reloading the whole page every 5s — smooth, no flicker. The page reloads once
+  only when the job finishes. The DB stage now persists progress per row-batch
+  so the bar climbs steadily. `src/Admin/BackupPage.php`, `src/Backup/Engine.php`.
+
+## [2.19.0] — 2026-06-05 — Self-sustaining loopback (finish with the browser closed)
+
+### Added
+
+- Backup/restore now kick a **server-side loopback chain** on start — a
+  non-blocking, secret-authenticated admin-ajax request that runs the next tick
+  and re-spawns itself — so a job runs to completion even with the browser
+  closed and zero site traffic. Cron + the on-page poll re-arm are fallbacks.
+  `src/Backup/Engine.php`, `src/Backup/RestoreEngine.php`.
+
+## [2.18.3] — 2026-06-05 — Backup runs on its own (manual batch button removed)
+
+### Changed
+
+- Removed the "Run a batch now" button; backup/restore advance automatically
+  (loopback + cron) so users aren't left wondering whether they must click.
+
 ## [2.18.1] — 2026-06-05 — Backup "View" folder tree + leaner default excludes
 
 ### Changed
