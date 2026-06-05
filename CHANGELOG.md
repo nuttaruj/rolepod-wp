@@ -4,6 +4,40 @@ All notable changes to this plugin are documented here. Follows [Keep a Changelo
 
 Plugin versions track `@rolepod/wplab` MCP family. See `MIN_COMPANION_VERSION` in `rolepod-wplab/src/companion/constants.ts` for the floor the MCP client expects.
 
+## [2.18.0] — 2026-06-05 — Backup restore (phase 2) + serialized-safe URL rewrite
+
+### Added
+
+- **Throttled restore engine** — the destructive counterpart of the backup
+  engine. A cron-driven state machine (prepare → db → rewrite → files) imports
+  `database.sql` and writes `files/` back into wp-content from a backup zip,
+  doing only a small chunk per tick (a budgeted run of SQL statements / a batch
+  of files), so even a large restore never blocks the front end. State persists
+  every tick; a transient lock prevents overlapping ticks. Requires
+  `confirm=true`. `src/Backup/RestoreEngine.php`.
+- **Serialized-data-safe URL rewrite** (optional) — adopting the migration
+  technique: rather than a naive str_replace (which corrupts PHP serialized
+  values via stale length prefixes), `SerializedReplace` recurses
+  unserialize → replace → re-serialize, so a backup can be restored onto a
+  different domain/path. Wired as a throttled post-import stage that walks every
+  primary-key table row-by-row, updating changed rows by PK (object-injection
+  safe — only stdClass is instantiated). `src/Backup/SerializedReplace.php`.
+- **Restore safety**: file targets are realpath-validated to stay under
+  wp-content (zip-slip protection); restore is additive-overwrite (never deletes
+  files absent from the backup); same-site restore needs no rewrite. Selective:
+  restore db only, files only, or a `files/` path prefix.
+- **Admin restore UI**: per-backup "Restore" → a confirm screen showing the
+  backup's manifest, component checkboxes, an optional old→new URL rewrite, and
+  a destructive-action confirm; plus a live restore progress card. REST surface:
+  `backup-restore` / `backup-restore-status`. `src/Endpoint/Backup.php`,
+  `src/Admin/BackupPage.php`.
+
+### Tests
+
+- `tests/Unit/serialized-replace-test.php` (11) — serialized-safe replace:
+  length regeneration, nested/multibyte/object cases, and proof that a naive
+  str_replace corrupts where ours does not.
+
 ## [2.17.0] — 2026-06-05 — Throttled site backup (phase 1: create + browse)
 
 ### Added

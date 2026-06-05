@@ -6,6 +6,7 @@ namespace Rolepod\Wp\Endpoint;
 use Rolepod\Wp\Audit\Log;
 use Rolepod\Wp\Backup\Archive;
 use Rolepod\Wp\Backup\Engine;
+use Rolepod\Wp\Backup\RestoreEngine;
 use Rolepod\Wp\Config;
 use Rolepod\Wp\Security\SessionToken;
 use WP_Error;
@@ -67,6 +68,21 @@ final class Backup
                 'session_token' => ['required' => true, 'type' => 'string'],
                 'id' => ['required' => true, 'type' => 'string'],
             ],
+        ]);
+        register_rest_route($ns, '/backup-restore', [
+            'methods' => 'POST',
+            'callback' => [self::class, 'restore'],
+            'permission_callback' => [self::class, 'permission'],
+            'args' => [
+                'session_token' => ['required' => true, 'type' => 'string'],
+                'id' => ['required' => true, 'type' => 'string'],
+                'confirm' => ['required' => true, 'type' => 'boolean'],
+            ],
+        ]);
+        register_rest_route($ns, '/backup-restore-status', [
+            'methods' => 'GET',
+            'callback' => [self::class, 'restoreStatus'],
+            'permission_callback' => [self::class, 'permission'],
         ]);
     }
 
@@ -150,6 +166,37 @@ final class Backup
         }
         $ok = Engine::deleteBackup((string) $req->get_param('id'));
         return new WP_REST_Response(['ok' => $ok], $ok ? 200 : 404);
+    }
+
+    public static function restore(WP_REST_Request $req): WP_REST_Response
+    {
+        if (!self::checkSession($req)) {
+            return new WP_REST_Response(['ok' => false, 'error_code' => 'INVALID_OR_EXPIRED_TOKEN'], 401);
+        }
+        $zip = self::resolveZip((string) $req->get_param('id'));
+        if ($zip === null) {
+            return new WP_REST_Response(['ok' => false, 'error_code' => 'BACKUP_NOT_FOUND'], 404);
+        }
+        $components = (array) ($req->get_param('components') ?? ['db' => true, 'files' => true]);
+        $sr = (array) ($req->get_param('search_replace') ?? []);
+        $r = RestoreEngine::start($zip, $components, [
+            'confirm' => (bool) $req->get_param('confirm'),
+            'path_prefix' => (string) ($req->get_param('path_prefix') ?? ''),
+            'search_replace' => $sr,
+        ]);
+        Log::append([
+            'endpoint' => 'backup-restore',
+            'user' => (string) wp_get_current_user()->user_login,
+            'site_url' => (string) get_option('siteurl'),
+            'result' => !empty($r['ok']) ? 'success' : 'rejected',
+            'error' => $r['error'] ?? null,
+        ]);
+        return new WP_REST_Response($r, !empty($r['ok']) ? 200 : 409);
+    }
+
+    public static function restoreStatus(): WP_REST_Response
+    {
+        return new WP_REST_Response(['ok' => true, 'job' => RestoreEngine::status()], 200);
     }
 
     private static function resolveZip(string $id): ?string

@@ -5,7 +5,7 @@
  * Description:       The WordPress arm of the Rolepod ecosystem (https://github.com/nuttaruj/rolepod). Exposes guarded REST endpoints so AI coding agents (Claude Code / Cursor / Codex / Gemini) — driven by the rolepod-wplab MCP server — can run runtime introspection, the one-click pair wizard, and (with explicit opt-in) execute-php on this WordPress install. Endpoints are OFF by default; enable per-feature in Settings → Rolepod for WordPress. v2.6 adds a mu-plugin recovery guardian that survives main-plugin parse/fatal errors.
  * Author:            nuttaruj
  * Author URI:        https://github.com/nuttaruj
- * Version:           2.17.0
+ * Version:           2.18.0
  * Requires at least: 6.0
  * Requires PHP:      7.4
  * License:           MIT
@@ -21,7 +21,7 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-define('ROLEPOD_WP_VERSION', '2.17.0');
+define('ROLEPOD_WP_VERSION', '2.18.0');
 define('ROLEPOD_WP_FILE', __FILE__);
 define('ROLEPOD_WP_DIR', plugin_dir_path(__FILE__));
 
@@ -154,6 +154,8 @@ add_action(\Rolepod\Wp\Media\Queue::CRON_HOOK, [\Rolepod\Wp\Media\Queue::class, 
 
 // v2.17 — throttled backup engine cron tick (shares the 1-minute schedule).
 add_action(\Rolepod\Wp\Backup\Engine::CRON_HOOK, [\Rolepod\Wp\Backup\Engine::class, 'tick']);
+// v2.18 — throttled restore engine cron tick.
+add_action(\Rolepod\Wp\Backup\RestoreEngine::CRON_HOOK, [\Rolepod\Wp\Backup\RestoreEngine::class, 'tick']);
 
 // v2.9.0 — GitHub-based auto-updater. Polls releases/latest at the cadence
 // WP polls the plugin update transient (default 12h); responds via the
@@ -234,4 +236,6 @@ register_deactivation_hook(__FILE__, static function (): void {
     \Rolepod\Wp\Media\Queue::unschedule();
     // v2.17 — stop the backup cron too.
     \Rolepod\Wp\Backup\Engine::unschedule();
+    // v2.18 — stop the restore cron too.
+    \Rolepod\Wp\Backup\RestoreEngine::unschedule();
 });
