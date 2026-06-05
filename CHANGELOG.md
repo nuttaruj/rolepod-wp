@@ -4,6 +4,49 @@ All notable changes to this plugin are documented here. Follows [Keep a Changelo
 
 Plugin versions track `@rolepod/wplab` MCP family. See `MIN_COMPANION_VERSION` in `rolepod-wplab/src/companion/constants.ts` for the floor the MCP client expects.
 
+## [2.14.0] — 2026-06-05 — SproutOS-parity hardening: symbol-conflict screen, boot-loop auto-heal, webhook stream, wider Abilities
+
+Four infra/safety deltas drawn from a comparison with the SproutOS MCP plugin.
+Each is independent and opt-in where it could regress behaviour.
+
+### Added
+
+- **Symbol-conflict screen for `/execute-php`.** Before `eval()`, the payload is
+  scanned for global `function` / `class` / `interface` / `trait` / `enum`
+  declarations whose names already exist in the runtime. A "Cannot redeclare"
+  fatal is not reliably catchable by the existing `try/catch`, so the call is
+  now rejected with `409 SYMBOL_CONFLICT` (listing the offending symbols) before
+  it can crash the request. Brace-depth tracking means methods inside a class
+  body, closures, arrow-fns, anonymous classes, and `Foo::class` are correctly
+  ignored. Bypass per-call with the new `allow_redeclare=true` parameter.
+  `src/Security/AstScreen.php`, `src/Endpoint/ExecutePhp.php`.
+- **Boot-loop auto-heal in the recovery guardian (opt-in, default OFF).** When
+  the *same* plugin/theme/mu-plugin file fatals on N consecutive guardian-
+  observed requests (`ROLEPOD_WP_GUARDIAN_AUTOHEAL_THRESHOLD`, default 3), the
+  guardian renames it `.disabled` (whole plugin for a plugin file; single file
+  for theme/mu-plugin) and raises safe-mode — breaking a WSOD loop with no SSH.
+  Scoped to `wp-content/{plugins,themes,mu-plugins}`; never touches core or the
+  guardian itself. New `POST /wplab-recovery/v1/autoheal {enabled}` toggle and
+  `autoheal_enabled` / `autoheal_log` / `fatal_streak` fields on `/status`.
+  Guardian bumped to 2.8.0. `guardian/rolepod-wp-guardian.php`.
+- **Webhook event streaming.** `Audit\Notifier` POSTs audited companion calls to
+  a Slack, Discord, or generic JSON webhook, wired into the `Audit\Log::append`
+  choke point. Level `errors` (default — rejected/error results plus every
+  `execute-php` call) or `all`. Delivery is non-blocking and self-guarded, so a
+  slow/dead webhook never adds latency or raises. Configurable from
+  Settings → Rolepod (URL + level + Send-test button); provider auto-detected
+  from the URL. `src/Audit/Notifier.php`, `src/Config.php`, `src/Admin/SettingsPage.php`.
+- **Wider Abilities API coverage.** Three read-only abilities added to the
+  WP 7.0 Abilities bridge so the native WP AI Client / any Abilities consumer
+  can orient and read content without the external MCP CLI: `rolepod/site-info`,
+  `rolepod/list-posts`, `rolepod/get-post`. All gated by `manage_options`.
+  `src/Abilities/{SiteInfoAbility,ListPostsAbility,GetPostAbility,Bridge}.php`.
+
+### Tests
+
+- `tests/Unit/astscreen-symbols-test.php` (14), `guardian-autoheal-test.php`
+  (20), `notifier-test.php` (14) — standalone, no wp-env. 48 checks total.
+
 ## [2.13.2] — 2026-05-29 — Fix: fs-write bytes_written on append
 
 ### Fixed

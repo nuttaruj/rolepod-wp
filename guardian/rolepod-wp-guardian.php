@@ -22,10 +22,19 @@ if (defined('ROLEPOD_WP_GUARDIAN_VERSION')) {
     // Another copy already loaded — don't double-register.
     return;
 }
-define('ROLEPOD_WP_GUARDIAN_VERSION', '2.7.2');
+define('ROLEPOD_WP_GUARDIAN_VERSION', '2.8.0');
 define('ROLEPOD_WP_GUARDIAN_NAMESPACE', 'wplab-recovery/v1');
 define('ROLEPOD_WP_GUARDIAN_FATALS_TRANSIENT', 'rolepod_wp_recovery_recent_fatals');
 define('ROLEPOD_WP_GUARDIAN_SAFE_MODE_OPTION', 'rolepod_wp_safe_mode');
+// v2.8 boot-loop auto-heal. OPT-IN (default OFF): when the SAME plugin/theme/
+// mu-plugin file fatals on this many consecutive guardian-observed requests,
+// the guardian renames it to `.disabled` and flips safe-mode — breaking a WSOD
+// loop without SSH/FTP. Off by default so behaviour is unchanged until an admin
+// (or the MCP) explicitly enables it.
+define('ROLEPOD_WP_GUARDIAN_AUTOHEAL_OPTION', 'rolepod_wp_guardian_autoheal');
+define('ROLEPOD_WP_GUARDIAN_STREAK_OPTION', 'rolepod_wp_guardian_fatal_streak');
+define('ROLEPOD_WP_GUARDIAN_AUTOHEAL_LOG_OPTION', 'rolepod_wp_guardian_autoheal_log');
+define('ROLEPOD_WP_GUARDIAN_AUTOHEAL_THRESHOLD', 3);
 
 /**
  * Early-dispatch short-circuit (v2.6.1).
@@ -100,7 +109,144 @@ register_shutdown_function(static function (): void {
         $recent = array_slice($recent, -10);
     }
     set_transient(ROLEPOD_WP_GUARDIAN_FATALS_TRANSIENT, $recent, 24 * HOUR_IN_SECONDS);
+
+    // v2.8 — boot-loop auto-heal (opt-in). Break a repeating WSOD by disabling
+    // the file that keeps fataling. No-op unless explicitly enabled.
+    rolepod_guardian_maybe_autoheal($record);
 });
+
+/**
+ * Boot-loop auto-heal. Tracks a per-file consecutive-fatal streak; when the
+ * SAME plugin/theme/mu-plugin file crosses the threshold AND auto-heal is
+ * enabled, the file is renamed `.disabled` and safe-mode is turned on.
+ *
+ * Safety rails:
+ *   - OPT-IN: no-op unless ROLEPOD_WP_GUARDIAN_AUTOHEAL_OPTION is truthy.
+ *   - SCOPED: only files under wp-content/{plugins,themes,mu-plugins}. Core
+ *     (wp-includes / wp-admin) and the guardian itself are never touched.
+ *   - THRESHOLD: requires N consecutive fatals from the same file (a genuine
+ *     loop), not a single transient error.
+ *   - For a plugin file the whole plugin is disabled (rename main file +
+ *     deactivate) so the plugin is never left half-loaded; theme / mu-plugin
+ *     files are renamed individually.
+ */
+function rolepod_guardian_maybe_autoheal(array $record): void
+{
+    if (!function_exists('get_option') || !function_exists('update_option')) {
+        return; // DB unavailable — can't track streak or rename safely.
+    }
+    if (!get_option(ROLEPOD_WP_GUARDIAN_AUTOHEAL_OPTION, false)) {
+        return; // opt-in gate.
+    }
+
+    $file = (string) ($record['file'] ?? '');
+    if ($file === '' || !rolepod_guardian_is_healable($file)) {
+        return;
+    }
+
+    // Update the consecutive-same-file streak.
+    $streak = get_option(ROLEPOD_WP_GUARDIAN_STREAK_OPTION, []);
+    if (!is_array($streak) || ($streak['file'] ?? null) !== $file) {
+        $streak = ['file' => $file, 'count' => 0];
+    }
+    $streak['count'] = (int) ($streak['count'] ?? 0) + 1;
+
+    if ($streak['count'] < ROLEPOD_WP_GUARDIAN_AUTOHEAL_THRESHOLD) {
+        update_option(ROLEPOD_WP_GUARDIAN_STREAK_OPTION, $streak, false);
+        return;
+    }
+
+    // Threshold reached — attempt the heal.
+    $result = rolepod_guardian_autoheal_disable($file);
+
+    $log = get_option(ROLEPOD_WP_GUARDIAN_AUTOHEAL_LOG_OPTION, []);
+    if (!is_array($log)) {
+        $log = [];
+    }
+    $log[] = [
+        'file' => $file,
+        'action' => $result['action'],
+        'target' => $result['target'] ?? null,
+        'ok' => $result['ok'],
+        'error' => $result['error'] ?? null,
+        'streak' => $streak['count'],
+        'ts' => time(),
+    ];
+    if (count($log) > 20) {
+        $log = array_slice($log, -20);
+    }
+    update_option(ROLEPOD_WP_GUARDIAN_AUTOHEAL_LOG_OPTION, $log, false);
+
+    if ($result['ok']) {
+        // Loop broken — reset streak and raise safe-mode so the main plugin
+        // refuses further risky ops until an admin reviews what happened.
+        delete_option(ROLEPOD_WP_GUARDIAN_STREAK_OPTION);
+        update_option(ROLEPOD_WP_GUARDIAN_SAFE_MODE_OPTION, true, false);
+    } else {
+        // Heal failed (perms?) — keep the streak so a later request can retry,
+        // but cap it so the log doesn't grow unbounded.
+        $streak['count'] = ROLEPOD_WP_GUARDIAN_AUTOHEAL_THRESHOLD;
+        update_option(ROLEPOD_WP_GUARDIAN_STREAK_OPTION, $streak, false);
+    }
+}
+
+/**
+ * Whether a fataling file is in scope for auto-heal. Plugins / themes /
+ * mu-plugins only; never WP core and never the guardian file itself
+ * (disabling the guardian would remove the very recovery layer doing this).
+ */
+function rolepod_guardian_is_healable(string $file): bool
+{
+    $file = str_replace('\\', '/', $file);
+    if (basename($file) === ROLEPOD_WP_GUARDIAN_VERSION) {
+        return false; // never matches a path, but cheap belt-and-braces.
+    }
+    if (strpos($file, '/rolepod-wp-guardian.php') !== false) {
+        return false;
+    }
+    if (strpos($file, '/wp-includes/') !== false || strpos($file, '/wp-admin/') !== false) {
+        return false;
+    }
+    return strpos($file, '/plugins/') !== false
+        || strpos($file, '/themes/') !== false
+        || strpos($file, '/mu-plugins/') !== false;
+}
+
+/**
+ * Disable the offending file. For a plugin, resolve + disable the whole plugin
+ * (rename main file → .disabled, then deactivate). For theme / mu-plugin files,
+ * rename the single file. Returns array{ok:bool,action:string,target?:string,error?:string}.
+ */
+function rolepod_guardian_autoheal_disable(string $file): array
+{
+    $norm = str_replace('\\', '/', $file);
+
+    // Plugin file → disable the whole plugin via its main file.
+    if (defined('WP_PLUGIN_DIR') && strpos($norm, '/plugins/') !== false) {
+        $pluginsDir = str_replace('\\', '/', WP_PLUGIN_DIR);
+        $rel = ltrim(substr($norm, strpos($norm, '/plugins/') + strlen('/plugins/')), '/');
+        $slug = strpos($rel, '/') !== false ? substr($rel, 0, strpos($rel, '/')) : $rel;
+        if ($slug !== '') {
+            $mainFile = rolepod_guardian_resolve_plugin_file($slug);
+            if ($mainFile !== null) {
+                $abs = $pluginsDir . '/' . $mainFile;
+                if (is_file($abs) && !is_file($abs . '.disabled') && @rename($abs, $abs . '.disabled')) {
+                    if (function_exists('deactivate_plugins')) {
+                        @deactivate_plugins($mainFile, true);
+                    }
+                    return ['ok' => true, 'action' => 'disable_plugin', 'target' => $mainFile];
+                }
+            }
+        }
+    }
+
+    // Theme / mu-plugin / fallback plugin-file → rename the single file.
+    if (is_file($norm) && !is_file($norm . '.disabled') && @rename($norm, $norm . '.disabled')) {
+        return ['ok' => true, 'action' => 'disable_file', 'target' => $norm];
+    }
+
+    return ['ok' => false, 'action' => 'none', 'error' => 'rename_failed_or_already_disabled'];
+}
 
 /**
  * REST registration. Fires on rest_api_init when WP boot completes normally
@@ -143,6 +289,7 @@ function rolepod_guardian_register_routes(?\WP_REST_Server $server = null): void
         ['method' => 'GET',  'route' => '/list-changes',     'callback' => 'rolepod_guardian_list_changes',     'args' => []],
         ['method' => 'POST', 'route' => '/safe-mode',        'callback' => 'rolepod_guardian_safe_mode',        'args' => ['enabled' => ['required' => true, 'type' => 'boolean']]],
         ['method' => 'POST', 'route' => '/clear-fatals',     'callback' => 'rolepod_guardian_clear_fatals',     'args' => []],
+        ['method' => 'POST', 'route' => '/autoheal',         'callback' => 'rolepod_guardian_autoheal_toggle',  'args' => ['enabled' => ['required' => true, 'type' => 'boolean']]],
     ];
 
     foreach ($routes as $r) {
@@ -207,9 +354,21 @@ function rolepod_guardian_status(): WP_REST_Response
 
     $lastFatal = !empty($recent) ? end($recent) : null;
 
+    $autohealEnabled = (bool) get_option(ROLEPOD_WP_GUARDIAN_AUTOHEAL_OPTION, false);
+    $autohealLog = get_option(ROLEPOD_WP_GUARDIAN_AUTOHEAL_LOG_OPTION, []);
+    if (!is_array($autohealLog)) {
+        $autohealLog = [];
+    }
+    $fatalStreak = get_option(ROLEPOD_WP_GUARDIAN_STREAK_OPTION, null);
+
     return new WP_REST_Response([
         'ok' => true,
         'guardian_version' => ROLEPOD_WP_GUARDIAN_VERSION,
+        // v2.8 boot-loop auto-heal state.
+        'autoheal_enabled' => $autohealEnabled,
+        'autoheal_threshold' => ROLEPOD_WP_GUARDIAN_AUTOHEAL_THRESHOLD,
+        'autoheal_log' => array_values($autohealLog),
+        'fatal_streak' => is_array($fatalStreak) ? $fatalStreak : null,
         // True iff main plugin file exists, is active, and not .disabled.
         // Recent fatals in recent_fatals indicate if it actually loads
         // cleanly on a normal request.
@@ -432,6 +591,20 @@ function rolepod_guardian_clear_fatals(): WP_REST_Response
 {
     delete_transient(ROLEPOD_WP_GUARDIAN_FATALS_TRANSIENT);
     return new WP_REST_Response(['ok' => true], 200);
+}
+
+/**
+ * POST /autoheal — toggle boot-loop auto-heal. When turning it off we also
+ * clear any in-progress streak so a re-enable starts clean.
+ */
+function rolepod_guardian_autoheal_toggle(WP_REST_Request $req): WP_REST_Response
+{
+    $enabled = (bool) $req->get_param('enabled');
+    update_option(ROLEPOD_WP_GUARDIAN_AUTOHEAL_OPTION, $enabled, false);
+    if (!$enabled) {
+        delete_option(ROLEPOD_WP_GUARDIAN_STREAK_OPTION);
+    }
+    return new WP_REST_Response(['ok' => true, 'autoheal' => $enabled], 200);
 }
 
 // -----------------------------------------------------------------------------

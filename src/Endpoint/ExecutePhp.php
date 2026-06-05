@@ -44,6 +44,11 @@ final class ExecutePhp
                     'session_token' => ['required' => true, 'type' => 'string'],
                     'payload' => ['required' => true, 'type' => 'string'],
                     'timeout_ms' => ['required' => false, 'type' => 'integer', 'default' => 5000],
+                    // When false (default) the payload is rejected with
+                    // SYMBOL_CONFLICT if it declares a global function/class/…
+                    // that already exists (would fatal on eval). Set true only
+                    // when the caller knowingly re-runs a declaring payload.
+                    'allow_redeclare' => ['required' => false, 'type' => 'boolean', 'default' => false],
                 ],
             ]
         );
@@ -132,7 +137,40 @@ final class ExecutePhp
             ], 400);
         }
 
-        // Eval — guarded by AST screen + prod block + session token + crash recovery
+        // Symbol-conflict screen (v2.14) — reject payloads that re-declare an
+        // existing global function/class/interface/trait/enum. "Cannot
+        // redeclare" is a fatal that eval()'s try/catch cannot reliably
+        // intercept, so we catch it here BEFORE eval and hand back an
+        // actionable error instead of a 500/WSOD. Bypassable per-call via
+        // allow_redeclare for the rare intentional re-run.
+        $allowRedeclare = (bool) $req->get_param('allow_redeclare');
+        if (!$allowRedeclare) {
+            $conflicts = AstScreen::symbolConflicts($payload);
+            if (!empty($conflicts)) {
+                $names = implode(', ', array_map(
+                    static fn(array $c): string => $c['kind'] . ' ' . $c['name'],
+                    $conflicts
+                ));
+                $auditId = Log::append([
+                    'endpoint' => 'execute-php',
+                    'user' => (string) wp_get_current_user()->user_login,
+                    'site_url' => $siteurl,
+                    'result' => 'rejected',
+                    'error' => 'SYMBOL_CONFLICT: ' . $names,
+                    'payload' => $payload,
+                ]);
+                return new WP_REST_Response([
+                    'ok' => false,
+                    'error_code' => 'SYMBOL_CONFLICT',
+                    'error_message' => "payload re-declares existing symbol(s): {$names}. "
+                        . 'Rename them, guard with function_exists()/class_exists(), or retry with allow_redeclare=true.',
+                    'conflicts' => $conflicts,
+                    'audit_id' => $auditId,
+                ], 409);
+            }
+        }
+
+        // Eval — guarded by AST screen + symbol screen + prod block + session token + crash recovery
         @set_time_limit(intval(ceil($timeoutMs / 1000)));
         $stdout = '';
         $returnValue = null;

@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Rolepod\Wp\Admin;
 
 use Rolepod\Wp\Audit\Log;
+use Rolepod\Wp\Audit\Notifier;
 use Rolepod\Wp\Config;
 use Rolepod\Wp\Guardian;
 
@@ -51,6 +52,17 @@ final class SettingsPage
             $guardianNotice = self::handleGuardianAction();
         }
 
+        $webhookNotice = null;
+        if (
+            isset($_POST['rolepod_wp_webhook_nonce'])
+            && wp_verify_nonce(
+                sanitize_text_field((string) wp_unslash($_POST['rolepod_wp_webhook_nonce'])),
+                self::NONCE_ACTION . '_webhook'
+            )
+        ) {
+            $webhookNotice = self::handleWebhookSave();
+        }
+
         $config = Config::all();
         $executePhpEnabled = (bool) ($config['execute_php_enabled'] ?? false);
 
@@ -69,6 +81,9 @@ final class SettingsPage
         }
         if ($guardianNotice !== null) {
             echo '<div class="notice notice-' . esc_attr($guardianNotice['type']) . ' is-dismissible"><p>' . wp_kses_post($guardianNotice['message']) . '</p></div>';
+        }
+        if ($webhookNotice !== null) {
+            echo '<div class="notice notice-' . esc_attr($webhookNotice['type']) . ' is-dismissible"><p>' . wp_kses_post($webhookNotice['message']) . '</p></div>';
         }
         if ($safeMode) {
             echo '<div class="notice notice-warning"><p><strong>Safe mode is ON.</strong> The MCP refuses risky ops (execute-php, theme switch, file write to functions.php / wp-config) until cleared.</p>';
@@ -118,6 +133,8 @@ final class SettingsPage
                         </div>
                     </div>
                 </form>
+
+                <?php self::renderWebhookCard(); ?>
 
                 <!-- Audit log -->
                 <div class="rp-card">
@@ -200,6 +217,47 @@ final class SettingsPage
                 <?php endif; ?>
             </div>
         </div>
+        <?php
+    }
+
+    private static function renderWebhookCard(): void
+    {
+        $url = Config::webhookUrl();
+        $level = Config::webhookLevel();
+        $provider = 'Generic JSON';
+        if ($url !== '' && strpos($url, 'hooks.slack.com') !== false) {
+            $provider = 'Slack';
+        } elseif ($url !== '' && (strpos($url, 'discord.com/api/webhooks') !== false || strpos($url, 'discordapp.com/api/webhooks') !== false)) {
+            $provider = 'Discord';
+        }
+        ?>
+        <form method="post">
+            <?php wp_nonce_field(self::NONCE_ACTION . '_webhook', 'rolepod_wp_webhook_nonce'); ?>
+            <div class="rp-card">
+                <div class="rp-card-head">
+                    <div>
+                        <h3>Event webhook</h3>
+                        <div class="rp-sub">Stream companion calls to Slack, Discord, or any JSON endpoint.</div>
+                    </div>
+                    <span class="rp-badge <?php echo $url !== '' ? 'rp-badge-success' : 'rp-badge-neutral'; ?>"><?php echo $url !== '' ? esc_html($provider) : 'Off'; ?></span>
+                </div>
+                <div class="rp-card-pad">
+                    <label style="display:block;font-size:12.5px;font-weight:600;margin-bottom:6px;">Webhook URL</label>
+                    <input type="url" name="webhook_url" value="<?php echo esc_attr($url); ?>" placeholder="https://hooks.slack.com/services/…  ·  https://discord.com/api/webhooks/…" style="width:100%;font-family:var(--rp-font-mono);font-size:12px;padding:7px 9px;" autocomplete="off" spellcheck="false">
+                    <div class="rp-desc" style="margin-top:5px;">Provider auto-detected from the URL. Leave empty to turn streaming off. Delivery is non-blocking — a dead webhook never slows the site.</div>
+
+                    <label style="display:block;font-size:12.5px;font-weight:600;margin:14px 0 6px;">Send</label>
+                    <select name="webhook_level" style="font-size:12.5px;padding:6px 8px;">
+                        <option value="errors" <?php selected($level, 'errors'); ?>>Errors &amp; execute-php only (recommended)</option>
+                        <option value="all" <?php selected($level, 'all'); ?>>Every audited call</option>
+                    </select>
+                </div>
+                <div class="rp-card-foot">
+                    <button type="submit" name="webhook_action" value="test" class="rp-btn rp-btn-sm rp-btn-ghost" <?php disabled($url === ''); ?>>Send test</button>
+                    <button type="submit" name="webhook_action" value="save" class="rp-btn rp-btn-primary">Save webhook</button>
+                </div>
+            </div>
+        </form>
         <?php
     }
 
@@ -338,6 +396,45 @@ final class SettingsPage
                 return ['type' => 'success', 'message' => 'Safe mode cleared.'];
         }
         return null;
+    }
+
+    private static function handleWebhookSave(): ?array
+    {
+        if (!current_user_can('manage_options')) {
+            return null;
+        }
+        $action = isset($_POST['webhook_action'])
+            ? sanitize_text_field((string) wp_unslash($_POST['webhook_action']))
+            : 'save';
+        $url = isset($_POST['webhook_url'])
+            ? esc_url_raw(trim((string) wp_unslash($_POST['webhook_url'])))
+            : '';
+        $level = (isset($_POST['webhook_level']) && (string) wp_unslash($_POST['webhook_level']) === 'all')
+            ? 'all'
+            : 'errors';
+        Config::update(['webhook_url' => $url, 'webhook_level' => $level]);
+
+        if ($action === 'test') {
+            if ($url === '') {
+                return ['type' => 'warning', 'message' => 'Enter a webhook URL first, then Send test.'];
+            }
+            Notifier::dispatch($url, [
+                'event' => 'companion.test',
+                'endpoint' => 'webhook-test',
+                'result' => 'success',
+                'user' => (string) wp_get_current_user()->user_login,
+                'error' => null,
+                'site_url' => (string) get_option('siteurl'),
+                'audit_id' => 'test',
+                'timestamp' => gmdate('c'),
+            ]);
+            return ['type' => 'success', 'message' => 'Test event sent (non-blocking) to <code>' . esc_html($url) . '</code> — check your channel.'];
+        }
+
+        return [
+            'type' => 'success',
+            'message' => $url === '' ? 'Webhook streaming turned off.' : 'Webhook saved.',
+        ];
     }
 
     private static function handleSave(): void

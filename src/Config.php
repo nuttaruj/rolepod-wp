@@ -52,6 +52,26 @@ final class Config
         return array_values(array_filter(array_map('strval', $hosts), 'strlen'));
     }
 
+    /**
+     * Webhook URL for event streaming (Slack / Discord / generic JSON).
+     * Empty string = streaming off.
+     */
+    public static function webhookUrl(): string
+    {
+        $url = self::all()['webhook_url'] ?? '';
+        return is_string($url) ? trim($url) : '';
+    }
+
+    /**
+     * Which events to stream: 'errors' (default — rejected/error + execute-php)
+     * or 'all'. Any unknown value falls back to 'errors'.
+     */
+    public static function webhookLevel(): string
+    {
+        $level = self::all()['webhook_level'] ?? 'errors';
+        return $level === 'all' ? 'all' : 'errors';
+    }
+
     public static function update(array $patch): void
     {
         $current = self::all();

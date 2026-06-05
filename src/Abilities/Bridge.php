@@ -32,6 +32,9 @@ final class Bridge
     {
         return [
             self::NAMESPACE . '/health-check',
+            self::NAMESPACE . '/site-info',
+            self::NAMESPACE . '/list-posts',
+            self::NAMESPACE . '/get-post',
             self::NAMESPACE . '/list-changes',
             self::NAMESPACE . '/panic-revert',
             self::NAMESPACE . '/recovery-status',
@@ -73,6 +76,9 @@ final class Bridge
             return;
         }
         HealthCheckAbility::register();
+        SiteInfoAbility::register();
+        ListPostsAbility::register();
+        GetPostAbility::register();
         ListChangesAbility::register();
         PanicRevertAbility::register();
         RecoveryStatusAbility::register();

@@ -58,6 +58,10 @@ final class Log
             self::writeFile($auditId, $payload);
         }
 
+        // 3. Stream to webhook (Slack/Discord/generic) when configured.
+        //    Non-blocking + self-guarded; never raises into the caller.
+        Notifier::maybeNotify($row);
+
         return $auditId;
     }
 
