@@ -29,6 +29,7 @@ final class RestoreEngine
 {
     public const CRON_HOOK = 'rolepod_wp_restore_tick';
     public const SCHEDULE = 'rolepod_wp_minute';
+    public const AJAX_ACTION = 'rolepod_wp_bg_restore';
     private const JOB_OPTION = 'rolepod_wp_restore_job';
     private const LOCK = 'rolepod_wp_restore_lock';
 
@@ -76,6 +77,7 @@ final class RestoreEngine
             'id' => 'rs_' . gmdate('Ymd-His') . '_' . substr(bin2hex(random_bytes(3)), 0, 6),
             'status' => 'running',
             'stage' => 'prepare',
+            'bg_secret' => bin2hex(random_bytes(16)),
             'zip_path' => $zipPath,
             'components' => ['db' => $db, 'files' => $files],
             'path_prefix' => (string) ($opts['path_prefix'] ?? ''),
@@ -91,7 +93,42 @@ final class RestoreEngine
         ];
         update_option(self::JOB_OPTION, $job, false);
         self::ensureScheduled();
+        self::spawnLoopback();
         return ['ok' => true, 'job' => self::status()];
+    }
+
+    /** Fire a non-blocking loopback that runs the next tick + re-spawns (see Engine). */
+    public static function spawnLoopback(): void
+    {
+        $job = self::raw();
+        if (($job['status'] ?? '') !== 'running' || empty($job['bg_secret'])) {
+            return;
+        }
+        wp_remote_post(admin_url('admin-ajax.php'), [
+            'timeout' => 0.01,
+            'blocking' => false,
+            'sslverify' => false,
+            'cookies' => [],
+            'body' => ['action' => self::AJAX_ACTION, 'secret' => (string) $job['bg_secret']],
+        ]);
+    }
+
+    /** admin-ajax handler for the restore loopback chain (secret-authenticated). */
+    public static function handleLoopback(): void
+    {
+        $secret = isset($_REQUEST['secret']) ? sanitize_text_field((string) wp_unslash($_REQUEST['secret'])) : '';
+        $job = self::raw();
+        $expected = (string) ($job['bg_secret'] ?? '');
+        if (($job['status'] ?? '') !== 'running' || $expected === '' || !hash_equals($expected, $secret)) {
+            wp_die('', '', ['response' => 200]);
+        }
+        @set_time_limit(0);
+        @ignore_user_abort(true);
+        $result = self::tick();
+        if (($result['status'] ?? '') !== 'locked' && (self::raw()['status'] ?? '') === 'running') {
+            self::spawnLoopback();
+        }
+        wp_die('', '', ['response' => 200]);
     }
 
     public static function tick(): array

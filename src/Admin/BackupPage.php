@@ -150,7 +150,7 @@ final class BackupPage
                         <div style="height:100%;width:<?php echo (int) $pct; ?>%;background:var(--rp-accent,#2563eb);transition:width .3s;"></div>
                     </div>
                     <div style="margin-top:8px;font-size:12px;color:var(--rp-text-muted);line-height:1.5;">
-                        Running automatically in small batches — this page updates live. You can leave it open or come back later.
+                        Running automatically in small batches — keeps going even if you close this page. This view just shows live progress.
                     </div>
                 <?php endif; ?>
                 <form method="post" style="margin-top:12px;display:flex;gap:6px;">

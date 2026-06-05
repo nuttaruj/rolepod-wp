@@ -22,6 +22,7 @@ final class Engine
 {
     public const CRON_HOOK = 'rolepod_wp_backup_tick';
     public const SCHEDULE = 'rolepod_wp_minute'; // shared 60s schedule (see Media\Queue)
+    public const AJAX_ACTION = 'rolepod_wp_bg_backup';
     private const JOB_OPTION = 'rolepod_wp_backup_job';
     private const HISTORY_OPTION = 'rolepod_wp_backups';
     private const LOCK = 'rolepod_wp_backup_lock';
@@ -77,6 +78,7 @@ final class Engine
             'id' => $id,
             'status' => 'running',
             'stage' => $comp['db'] ? 'db' : 'files',
+            'bg_secret' => bin2hex(random_bytes(16)),
             'components' => $comp,
             'compress' => (bool) ($opts['compress'] ?? true),
             'exclude' => array_values(array_unique(array_merge(self::DEFAULT_EXCLUDES, (array) ($opts['exclude'] ?? [])))),
@@ -92,9 +94,57 @@ final class Engine
         ];
         update_option(self::JOB_OPTION, $job, false);
         self::ensureScheduled();
-        // Kick the first chunk immediately so the UI shows progress without
-        // waiting for cron.
+        // Kick a self-sustaining server-side loopback chain so the backup runs
+        // to completion even if the browser is closed and the site gets no
+        // traffic (cron + the admin page are fallbacks, not requirements).
+        self::spawnLoopback();
         return ['ok' => true, 'job' => self::status()];
+    }
+
+    /**
+     * Fire a non-blocking loopback request to admin-ajax that runs the next
+     * tick and re-spawns itself — a background chain independent of cron /
+     * browser / traffic. No-ops if loopback HTTP is blocked by the host (the
+     * cron tick + on-page auto-tick still advance the job).
+     */
+    public static function spawnLoopback(): void
+    {
+        $job = self::raw();
+        if (($job['status'] ?? '') !== 'running' || empty($job['bg_secret'])) {
+            return;
+        }
+        wp_remote_post(admin_url('admin-ajax.php'), [
+            'timeout' => 0.01,
+            'blocking' => false,
+            'sslverify' => false,
+            'cookies' => [],
+            'body' => ['action' => self::AJAX_ACTION, 'secret' => (string) $job['bg_secret']],
+        ]);
+    }
+
+    /**
+     * admin-ajax handler for the loopback chain. Authenticated by the per-job
+     * secret (the request carries no admin cookie). Runs one tick, then spawns
+     * the next link unless the tick was a no-op (another worker holds the lock)
+     * or the job finished.
+     */
+    public static function handleLoopback(): void
+    {
+        $secret = isset($_REQUEST['secret']) ? sanitize_text_field((string) wp_unslash($_REQUEST['secret'])) : '';
+        $job = self::raw();
+        $expected = (string) ($job['bg_secret'] ?? '');
+        if (($job['status'] ?? '') !== 'running' || $expected === '' || !hash_equals($expected, $secret)) {
+            wp_die('', '', ['response' => 200]);
+        }
+        @set_time_limit(0);
+        @ignore_user_abort(true);
+        $result = self::tick();
+        // Back off if another worker is mid-tick (avoid a loopback storm); the
+        // active chain will continue itself.
+        if (($result['status'] ?? '') !== 'locked' && (self::raw()['status'] ?? '') === 'running') {
+            self::spawnLoopback();
+        }
+        wp_die('', '', ['response' => 200]);
     }
 
     /**

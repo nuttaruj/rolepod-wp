@@ -5,7 +5,7 @@
  * Description:       The WordPress arm of the Rolepod ecosystem (https://github.com/nuttaruj/rolepod). Exposes guarded REST endpoints so AI coding agents (Claude Code / Cursor / Codex / Gemini) — driven by the rolepod-wplab MCP server — can run runtime introspection, the one-click pair wizard, and (with explicit opt-in) execute-php on this WordPress install. Endpoints are OFF by default; enable per-feature in Settings → Rolepod for WordPress. v2.6 adds a mu-plugin recovery guardian that survives main-plugin parse/fatal errors.
  * Author:            nuttaruj
  * Author URI:        https://github.com/nuttaruj
- * Version:           2.18.3
+ * Version:           2.19.0
  * Requires at least: 6.0
  * Requires PHP:      7.4
  * License:           MIT
@@ -21,7 +21,7 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-define('ROLEPOD_WP_VERSION', '2.18.3');
+define('ROLEPOD_WP_VERSION', '2.19.0');
 define('ROLEPOD_WP_FILE', __FILE__);
 define('ROLEPOD_WP_DIR', plugin_dir_path(__FILE__));
 
@@ -156,6 +156,15 @@ add_action(\Rolepod\Wp\Media\Queue::CRON_HOOK, [\Rolepod\Wp\Media\Queue::class, 
 add_action(\Rolepod\Wp\Backup\Engine::CRON_HOOK, [\Rolepod\Wp\Backup\Engine::class, 'tick']);
 // v2.18 — throttled restore engine cron tick.
 add_action(\Rolepod\Wp\Backup\RestoreEngine::CRON_HOOK, [\Rolepod\Wp\Backup\RestoreEngine::class, 'tick']);
+
+// v2.19 — self-sustaining loopback chains so backup/restore run to completion
+// even with the browser closed and no site traffic (secret-authenticated, so
+// they register on the nopriv hook too — the loopback request carries no admin
+// cookie). Cron + the on-page auto-tick remain as fallbacks.
+add_action('wp_ajax_' . \Rolepod\Wp\Backup\Engine::AJAX_ACTION, [\Rolepod\Wp\Backup\Engine::class, 'handleLoopback']);
+add_action('wp_ajax_nopriv_' . \Rolepod\Wp\Backup\Engine::AJAX_ACTION, [\Rolepod\Wp\Backup\Engine::class, 'handleLoopback']);
+add_action('wp_ajax_' . \Rolepod\Wp\Backup\RestoreEngine::AJAX_ACTION, [\Rolepod\Wp\Backup\RestoreEngine::class, 'handleLoopback']);
+add_action('wp_ajax_nopriv_' . \Rolepod\Wp\Backup\RestoreEngine::AJAX_ACTION, [\Rolepod\Wp\Backup\RestoreEngine::class, 'handleLoopback']);
 
 // v2.9.0 — GitHub-based auto-updater. Polls releases/latest at the cadence
 // WP polls the plugin update transient (default 12h); responds via the
