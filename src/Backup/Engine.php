@@ -6,11 +6,10 @@ namespace Rolepod\Wp\Backup;
 /**
  * Throttled, resumable backup engine.
  *
- * A backup is a state machine — db → files → finalize — driven by a WP-Cron
- * tick (or the admin "Run now" button). Each tick does only a small,
- * time-boxed chunk: a few hundred DB rows or a few dozen files, sleeping
- * between, yielding after ~8s. So a large site backs up gradually in the
- * background instead of pegging CPU and freezing the front end.
+ * A backup is a state machine — db → files → finalize — driven by a loopback
+ * chain (+ cron fallback). Each tick does one TIME-BOXED chunk (~12s of work,
+ * no per-item sleep) then yields the request, so CPU is bounded per request but
+ * the job still runs fast; a small site finishes in a tick or two.
  *
  * Output is one browsable ZIP per backup under
  * uploads/rolepod-wp/backups/backup-<id>.zip containing manifest.json (first),
@@ -27,11 +26,16 @@ final class Engine
     private const HISTORY_OPTION = 'rolepod_wp_backups';
     private const LOCK = 'rolepod_wp_backup_lock';
 
-    private const ROW_BATCH = 500;
-    private const FILE_BATCH = 40;
-    private const TICK_BUDGET_S = 8.0;
-    private const SLEEP_US = 150_000;
-    private const LOCK_TTL = 300;
+    // CPU is controlled by the per-tick TIME BUDGET (work flat-out, then yield
+    // the request so the worker is freed) — NOT by sleeping between items.
+    // A per-item usleep made small sites take minutes (the sleep was ~99% of
+    // the wall time); time-boxing is how fast backup tools stay host-friendly.
+    // SLEEP_US is kept at 0 (configurable escape hatch for paranoid shared hosts).
+    private const ROW_BATCH = 2000;
+    private const FILE_BATCH = 500;
+    private const TICK_BUDGET_S = 12.0;
+    private const SLEEP_US = 0;
+    private const LOCK_TTL = 60;
     private const MAX_FILES = 200_000;
 
     private const DEFAULT_EXCLUDES = [

@@ -4,6 +4,22 @@ All notable changes to this plugin are documented here. Follows [Keep a Changelo
 
 Plugin versions track `@rolepod/wplab` MCP family. See `MIN_COMPANION_VERSION` in `rolepod-wplab/src/companion/constants.ts` for the floor the MCP client expects.
 
+## [2.19.2] — 2026-06-06 — Backup/restore speed: drop the per-item sleep (minutes → ~1s)
+
+### Changed
+
+- **Removed the per-item `usleep` throttle.** It was the wrong CPU-control
+  technique: on the live demo a tick spent ~151ms/file of which ~150ms was pure
+  sleep (the actual zip-add is ~1ms), so a small site's backup took *minutes*.
+  CPU is now bounded the way fast backup tools do it — a per-tick TIME BUDGET
+  (~12s of work, then yield the request) rather than sleeping between items.
+  Batch caps were raised (rows 500→2000, files 40→500) so the time-box is the
+  limiter. A full demo backup (1.5k rows + 185 files) dropped from minutes to
+  **under a second**, verified complete (188 zip entries). `Engine`,
+  `RestoreEngine`.
+- `LOCK_TTL` lowered 300s → 60s so a tick killed mid-run (host timeout) only
+  stalls the job ~1 minute before another worker can resume, not 5.
+
 ## [2.19.1] — 2026-06-05 — Smooth live progress (AJAX poll, no page reload)
 
 ### Changed

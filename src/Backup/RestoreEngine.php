@@ -33,10 +33,12 @@ final class RestoreEngine
     private const JOB_OPTION = 'rolepod_wp_restore_job';
     private const LOCK = 'rolepod_wp_restore_lock';
 
-    private const STMT_BUDGET_S = 8.0;
-    private const FILE_BATCH = 40;
-    private const SLEEP_US = 120_000;
-    private const LOCK_TTL = 300;
+    // CPU controlled by the per-tick TIME BUDGET, not a per-item sleep (see
+    // Engine) — a per-item usleep made restores needlessly slow.
+    private const STMT_BUDGET_S = 12.0;
+    private const FILE_BATCH = 500;
+    private const SLEEP_US = 0;
+    private const LOCK_TTL = 60;
 
     /**
      * Begin a restore from a backup zip.
