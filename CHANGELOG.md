@@ -4,6 +4,31 @@ All notable changes to this plugin are documented here. Follows [Keep a Changelo
 
 Plugin versions track `@rolepod/wplab` MCP family. See `MIN_COMPANION_VERSION` in `rolepod-wplab/src/companion/constants.ts` for the floor the MCP client expects.
 
+## [2.15.0] — 2026-06-05 — Bulk media optimize
+
+### Added
+
+- **`POST /media-optimize`** — bulk-recompress (and optionally downscale)
+  media-library image originals over a byte threshold; the "optimize all images
+  over 200KB" workflow, drawn from a WPWriter feature comparison. Params:
+  `min_bytes` (default 200000), `max_dimension` (0 = no resize), `quality`
+  (default 82), `limit` (default 20, max 100), `apply` (default false).
+  - **dry-run by default** — reports candidates + current sizes, writes nothing.
+  - on `apply=true`, every original is copied to
+    `uploads/rolepod-wp/media-backups/` BEFORE overwrite and each optimize is
+    recorded in the Change Ledger (`category=media`, reversible).
+  - a re-encode that doesn't actually shrink the file restores the original
+    (never trades quality for zero gain).
+  - refuses with `423 SAFE_MODE` when the guardian safe-mode flag is on.
+  - only the full-size original is touched; thumbnails are left as-is; stored
+    attachment metadata (`filesize`, and `width`/`height` when downscaled) is
+    kept consistent. `src/Endpoint/MediaOptimize.php`.
+
+### Tests
+
+- `tests/Unit/media-optimize-test.php` (7) — candidate filter/sort/cap. The
+  WP_Image_Editor encode path is verified live.
+
 ## [2.14.0] — 2026-06-05 — SproutOS-parity hardening: symbol-conflict screen, boot-loop auto-heal, webhook stream, wider Abilities
 
 Four infra/safety deltas drawn from a comparison with the SproutOS MCP plugin.
