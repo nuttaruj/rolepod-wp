@@ -4,6 +4,32 @@ All notable changes to this plugin are documented here. Follows [Keep a Changelo
 
 Plugin versions track `@rolepod/wplab` MCP family. See `MIN_COMPANION_VERSION` in `rolepod-wplab/src/companion/constants.ts` for the floor the MCP client expects.
 
+## [2.16.0] — 2026-06-05 — Media admin page + throttled background queue
+
+### Added
+
+- **Admin "Media" page** (new submenu under Rolepod WP). Shows the current
+  image-library size, cumulative optimize impact (images done, total bytes +
+  % saved, last run), and the background-queue status with a progress bar and
+  Queue / Process-now / Pause / Resume / Clear controls. `src/Admin/MediaPage.php`,
+  `src/Media/Stats.php`.
+- **Throttled background optimize queue.** Instead of pegging CPU by encoding
+  everything at once (the usual image-plugin failure mode), a WP-Cron tick
+  processes a SMALL batch per run (default 3/min), `usleep`s 200ms between
+  images, and yields after an ~8s wall-time budget — so a large library
+  optimizes gradually without freezing the site. Progress is persisted after
+  every image (crash-safe), a transient lock prevents overlapping ticks, and
+  the queue pauses itself under guardian safe-mode. `src/Media/Queue.php`.
+- **`mode=enqueue`** on `POST /media-optimize` — hand all matching candidates
+  to the background queue instead of processing synchronously. `mode=immediate`
+  (default) keeps the previous synchronous behaviour.
+
+### Changed
+
+- Optimize logic extracted to a shared `Rolepod\Wp\Media\Optimizer` service
+  (used by both the endpoint and the queue); added a 50 MP guard so a single
+  giant image can't OOM a shared host. `selectCandidates` moved there.
+
 ## [2.15.0] — 2026-06-05 — Bulk media optimize
 
 ### Added

@@ -10,11 +10,11 @@ declare(strict_types=1);
  * so requiring the file is safe; only selectCandidates() is exercised here.
  */
 
-// Stub the few symbols referenced at class-load (use statements resolve lazily;
-// nothing runs at include time), so a bare require works.
-require __DIR__ . '/../../src/Endpoint/MediaOptimize.php';
+// Optimizer::selectCandidates is pure (use statements resolve lazily; nothing
+// runs at include time), so a bare require works.
+require __DIR__ . '/../../src/Media/Optimizer.php';
 
-use Rolepod\Wp\Endpoint\MediaOptimize;
+use Rolepod\Wp\Media\Optimizer as MediaOptimize;
 
 $failures = 0;
 $count = 0;

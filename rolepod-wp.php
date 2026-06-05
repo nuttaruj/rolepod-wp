@@ -5,7 +5,7 @@
  * Description:       The WordPress arm of the Rolepod ecosystem (https://github.com/nuttaruj/rolepod). Exposes guarded REST endpoints so AI coding agents (Claude Code / Cursor / Codex / Gemini) — driven by the rolepod-wplab MCP server — can run runtime introspection, the one-click pair wizard, and (with explicit opt-in) execute-php on this WordPress install. Endpoints are OFF by default; enable per-feature in Settings → Rolepod for WordPress. v2.6 adds a mu-plugin recovery guardian that survives main-plugin parse/fatal errors.
  * Author:            nuttaruj
  * Author URI:        https://github.com/nuttaruj
- * Version:           2.15.0
+ * Version:           2.16.0
  * Requires at least: 6.0
  * Requires PHP:      7.4
  * License:           MIT
@@ -21,7 +21,7 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-define('ROLEPOD_WP_VERSION', '2.15.0');
+define('ROLEPOD_WP_VERSION', '2.16.0');
 define('ROLEPOD_WP_FILE', __FILE__);
 define('ROLEPOD_WP_DIR', plugin_dir_path(__FILE__));
 
@@ -144,6 +144,12 @@ add_action('admin_enqueue_scripts', [\Rolepod\Wp\Admin\Menu::class, 'enqueueAsse
 // Legacy URL redirects (v2.7 and earlier nested Rolepod under Settings/Tools).
 add_action('admin_init', [\Rolepod\Wp\Admin\Menu::class, 'legacyRedirect']);
 
+// v2.15 — throttled media-optimize background queue. Register the 1-minute
+// cron schedule + the tick callback. The schedule is only actually used while a
+// queue is running (Queue schedules/unschedules the event itself).
+add_filter('cron_schedules', [\Rolepod\Wp\Media\Queue::class, 'registerSchedule']);
+add_action(\Rolepod\Wp\Media\Queue::CRON_HOOK, [\Rolepod\Wp\Media\Queue::class, 'tick']);
+
 // v2.9.0 — GitHub-based auto-updater. Polls releases/latest at the cadence
 // WP polls the plugin update transient (default 12h); responds via the
 // standard WP update notice + one-click upgrade button.
@@ -218,4 +224,7 @@ register_deactivation_hook(__FILE__, static function (): void {
     // v2.6 — Option A tight coupling: deactivate = guardian also removed.
     // Predictable "off completely" UX. Re-activate copies it back.
     \Rolepod\Wp\Guardian::remove();
+    // v2.15 — stop the media-optimize cron so no orphaned event survives
+    // deactivation (queue state is left intact for a later re-activate).
+    \Rolepod\Wp\Media\Queue::unschedule();
 });

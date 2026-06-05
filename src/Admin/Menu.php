@@ -21,6 +21,7 @@ final class Menu
     public const PARENT_SLUG    = 'rolepod-wp';
     public const SLUG_SETUP     = 'rolepod-wp';
     public const SLUG_CHANGES   = 'rolepod-wp-changes';
+    public const SLUG_MEDIA     = 'rolepod-wp-media';
     public const SLUG_SETTINGS  = 'rolepod-wp-settings';
 
     public static function register(): void
@@ -51,6 +52,14 @@ final class Menu
             $cap,
             self::SLUG_CHANGES,
             [ChangeLedgerPage::class, 'render']
+        );
+        add_submenu_page(
+            self::PARENT_SLUG,
+            'Rolepod WP — Media',
+            'Media',
+            $cap,
+            self::SLUG_MEDIA,
+            [MediaPage::class, 'render']
         );
         add_submenu_page(
             self::PARENT_SLUG,
