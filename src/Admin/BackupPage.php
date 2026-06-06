@@ -92,6 +92,11 @@ final class BackupPage
         (function () {
             var nonce = <?php echo wp_json_encode($nonce); ?>;
             var url = (window.ajaxurl || '<?php echo esc_js(admin_url('admin-ajax.php')); ?>');
+            // Warn before leaving while a job is running (some hosts block the
+            // background loopback, so keeping this tab open is the safe path).
+            function beforeUnload(e) { e.preventDefault(); e.returnValue = ''; return ''; }
+            window.addEventListener('beforeunload', beforeUnload);
+            function stopGuard() { window.removeEventListener('beforeunload', beforeUnload); }
             function fmtBytes(n) {
                 if (!n) return '0 B';
                 var u = ['B', 'KB', 'MB', 'GB'], i = 0;
@@ -115,7 +120,7 @@ final class BackupPage
                         apply('rp-rs', d.restore);
                         var live = (d.backup && d.backup.status === 'running') || (d.restore && d.restore.status === 'running');
                         if (live) { setTimeout(poll, 1200); }
-                        else { window.location = window.location.pathname + window.location.search; }
+                        else { stopGuard(); window.location = window.location.pathname + window.location.search; }
                     })
                     .catch(function () { setTimeout(poll, 3000); });
             }
@@ -214,8 +219,9 @@ final class BackupPage
                     <div style="height:8px;border-radius:6px;background:var(--rp-surface-sunken);overflow:hidden;">
                         <div id="rp-bk-bar" style="height:100%;width:<?php echo (int) $pct; ?>%;background:var(--rp-accent,#2563eb);transition:width .6s ease;"></div>
                     </div>
-                    <div style="margin-top:8px;font-size:12px;color:var(--rp-text-muted);line-height:1.5;">
-                        Running automatically in small batches — keeps going even if you close this page. This view just shows live progress.
+                    <div style="margin-top:8px;font-size:12px;color:var(--rp-warning-text,#9a6700);line-height:1.5;display:flex;gap:7px;align-items:flex-start;">
+                        <span aria-hidden="true">⚠️</span>
+                        <span><strong>Keep this tab open until it finishes.</strong> It runs in the background in small batches; closing the browser may pause it on hosts that block background processing.</span>
                     </div>
                 <?php endif; ?>
                 <form method="post" style="margin-top:12px;display:flex;gap:6px;">
@@ -445,7 +451,7 @@ final class BackupPage
                     </div>
                 <?php endif; ?>
                 <?php if ($status === "running"): ?>
-                    <div style="margin-top:8px;font-size:12px;color:var(--rp-text-muted);">Running automatically — this page updates live.</div>
+                    <div style="margin-top:8px;font-size:12px;color:var(--rp-warning-text,#9a6700);">⚠️ <strong>Keep this tab open until it finishes.</strong> Closing the browser may pause the restore on some hosts.</div>
                 <?php endif; ?>
                 <form method="post" style="margin-top:12px;display:flex;gap:6px;">
                     <?php wp_nonce_field(self::NONCE_ACTION, 'rolepod_wp_backup_nonce'); ?>

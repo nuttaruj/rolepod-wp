@@ -105,7 +105,7 @@ final class MediaPage
                             </div>
                             <div style="margin-top:8px;font-size:12px;color:var(--rp-text-muted);">
                                 <?php if ($queue['status'] === 'running'): ?>
-                                    Optimizing automatically in the background — this page updates live. You can leave or come back later.
+                                    <span style="color:var(--rp-warning-text,#9a6700);">⚠️ <strong>Keep this tab open until it finishes.</strong> Optimizing in the background; closing the browser may pause it on some hosts.</span>
                                 <?php else: ?>
                                     <?php echo esc_html((int) $queue['remaining']); ?> remaining
                                 <?php endif; ?>
@@ -185,6 +185,9 @@ final class MediaPage
         (function () {
             var nonce = <?php echo wp_json_encode($nonce); ?>;
             var url = (window.ajaxurl || '<?php echo esc_js(admin_url('admin-ajax.php')); ?>');
+            function beforeUnload(e) { e.preventDefault(); e.returnValue = ''; return ''; }
+            window.addEventListener('beforeunload', beforeUnload);
+            function stopGuard() { window.removeEventListener('beforeunload', beforeUnload); }
             function poll() {
                 fetch(url + '?action=rolepod_wp_media_poll&_wpnonce=' + encodeURIComponent(nonce), { credentials: 'same-origin' })
                     .then(function (r) { return r.json(); })
@@ -196,7 +199,7 @@ final class MediaPage
                         if (pct) pct.textContent = (d.percent | 0) + '%';
                         if (stat && d.line) stat.textContent = d.line;
                         if (d.status === 'running') { setTimeout(poll, 1200); }
-                        else { window.location = window.location.pathname + window.location.search; }
+                        else { stopGuard(); window.location = window.location.pathname + window.location.search; }
                     })
                     .catch(function () { setTimeout(poll, 3000); });
             }

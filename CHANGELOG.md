@@ -4,6 +4,17 @@ All notable changes to this plugin are documented here. Follows [Keep a Changelo
 
 Plugin versions track `@rolepod/wplab` MCP family. See `MIN_COMPANION_VERSION` in `rolepod-wplab/src/companion/constants.ts` for the floor the MCP client expects.
 
+## [2.20.1] — 2026-06-06 — "Keep this tab open" warning while a job runs
+
+### Added
+
+- While a backup / restore / media-optimize job is running, the page shows a
+  ⚠️ "Keep this tab open until it finishes" notice and arms a `beforeunload`
+  guard so the browser prompts before you close the tab or navigate away. The
+  job usually continues via the background loopback, but some hosts block it —
+  so keeping the tab open is the safe path. The guard clears automatically when
+  the job finishes. `src/Admin/BackupPage.php`, `src/Admin/MediaPage.php`.
+
 ## [2.20.0] — 2026-06-06 — Media optimize: loopback + speed + smooth UI (parity with backup)
 
 ### Changed
