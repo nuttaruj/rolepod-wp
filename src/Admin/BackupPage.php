@@ -6,6 +6,7 @@ namespace Rolepod\Wp\Admin;
 use Rolepod\Wp\Backup\Archive;
 use Rolepod\Wp\Backup\Engine;
 use Rolepod\Wp\Backup\RestoreEngine;
+use Rolepod\Wp\Backup\Schedule;
 
 /**
  * Admin "Backup" page.
@@ -68,6 +69,7 @@ final class BackupPage
             </div>
             <aside class="rp-stack">
                 <?php self::renderStartCard($job); ?>
+                <?php self::renderScheduleCard(); ?>
                 <?php self::renderImportCard(); ?>
             </aside>
         </div>
@@ -190,6 +192,61 @@ final class BackupPage
                     <button type="submit" name="backup_action" value="start" class="rp-btn rp-btn-primary" style="margin-top:14px;width:100%;" <?php disabled($running); ?>>
                         <?php echo $running ? 'Backup running…' : 'Start backup'; ?>
                     </button>
+                </div>
+            </div>
+        </form>
+        <?php
+    }
+
+    private static function renderScheduleCard(): void
+    {
+        $cfg = Schedule::get();
+        $next = Schedule::nextRun();
+        ?>
+        <form method="post">
+            <?php wp_nonce_field(self::NONCE_ACTION, 'rolepod_wp_backup_nonce'); ?>
+            <div class="rp-card">
+                <div class="rp-card-head" style="padding:14px 18px 12px;">
+                    <div><h3 style="font-size:13.5px;">Scheduled backups</h3><div class="rp-sub" style="font-size:12px;">Auto-backup on a schedule + keep last N</div></div>
+                    <span class="rp-badge <?php echo $cfg['enabled'] ? 'rp-badge-success' : 'rp-badge-neutral'; ?>"><?php echo $cfg['enabled'] ? 'On' : 'Off'; ?></span>
+                </div>
+                <div style="padding:12px 18px;">
+                    <label style="display:flex;align-items:center;gap:8px;font-size:13px;margin-bottom:12px;">
+                        <input type="checkbox" name="sch_enabled" value="1" <?php checked($cfg['enabled']); ?>>
+                        <span><strong>Enable scheduled backups</strong></span>
+                    </label>
+                    <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:12px;">
+                        <label style="font-size:12px;">Frequency<br>
+                            <select name="sch_frequency" style="font-size:12.5px;padding:6px;">
+                                <option value="hourly" <?php selected($cfg['frequency'], 'hourly'); ?>>Hourly</option>
+                                <option value="daily" <?php selected($cfg['frequency'], 'daily'); ?>>Daily</option>
+                                <option value="weekly" <?php selected($cfg['frequency'], 'weekly'); ?>>Weekly</option>
+                            </select>
+                        </label>
+                        <label style="font-size:12px;">Keep last N (0 = all)<br>
+                            <input type="number" name="sch_retention" value="<?php echo (int) $cfg['retention']; ?>" min="0" max="50" style="width:90px;padding:6px;">
+                        </label>
+                    </div>
+                    <div style="font-size:12px;font-weight:600;margin-bottom:6px;">Include</div>
+                    <div style="display:grid;gap:6px;font-size:13px;margin-bottom:10px;">
+                        <?php
+                        self::checkbox('sch_c_db', 'Database', $cfg['components']['db']);
+                        self::checkbox('sch_c_uploads', 'Uploads', $cfg['components']['uploads']);
+                        self::checkbox('sch_c_themes', 'Themes', $cfg['components']['themes']);
+                        self::checkbox('sch_c_plugins', 'Plugins', $cfg['components']['plugins']);
+                        self::checkbox('sch_c_muplugins', 'mu-plugins', $cfg['components']['muplugins']);
+                        ?>
+                        <label style="display:flex;align-items:center;gap:8px;border-top:1px solid var(--rp-border);padding-top:8px;">
+                            <input type="checkbox" name="sch_compress" value="1" <?php checked($cfg['compress']); ?>>
+                            <span>Compress text/SQL</span>
+                        </label>
+                    </div>
+                    <div style="font-size:12px;color:var(--rp-text-muted);margin-bottom:10px;">
+                        <?php if ($cfg['enabled'] && $next > 0): ?>Next run in <strong><?php echo esc_html(human_time_diff(time(), $next)); ?></strong> &middot; <?php endif; ?>
+                        Retention keeps the newest <strong><?php echo $cfg['retention'] > 0 ? (int) $cfg['retention'] : 'all'; ?></strong> <em>scheduled</em> backups; manual backups + imports are never auto-deleted (max 50 kept total).
+                    </div>
+                    <button type="submit" name="backup_action" value="save_schedule" class="rp-btn rp-btn-primary rp-btn-sm" style="width:100%;">Save schedule</button>
+                    <div class="rp-desc" style="margin-top:8px;">Runs via WP-Cron (fires on site traffic). For exact timing on a quiet site, use a real system cron.</div>
                 </div>
             </div>
         </form>
@@ -593,6 +650,21 @@ final class BackupPage
                 return ['type' => 'warning', 'message' => 'Backup not found.'];
             case 'upload':
                 return self::handleUpload();
+            case 'save_schedule':
+                Schedule::save([
+                    'enabled' => isset($_POST['sch_enabled']),
+                    'frequency' => isset($_POST['sch_frequency']) ? sanitize_text_field((string) wp_unslash($_POST['sch_frequency'])) : 'daily',
+                    'retention' => (int) ($_POST['sch_retention'] ?? 0),
+                    'compress' => isset($_POST['sch_compress']),
+                    'components' => [
+                        'db' => isset($_POST['sch_c_db']),
+                        'uploads' => isset($_POST['sch_c_uploads']),
+                        'themes' => isset($_POST['sch_c_themes']),
+                        'plugins' => isset($_POST['sch_c_plugins']),
+                        'muplugins' => isset($_POST['sch_c_muplugins']),
+                    ],
+                ]);
+                return ['type' => 'success', 'message' => isset($_POST['sch_enabled']) ? 'Schedule saved — automatic backups are on.' : 'Schedule saved — automatic backups are off.'];
             case 'restore':
                 return self::handleRestore();
             case 'restore_cancel':

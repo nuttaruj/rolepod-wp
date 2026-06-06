@@ -25,6 +25,7 @@ final class Engine
     private const JOB_OPTION = 'rolepod_wp_backup_job';
     private const HISTORY_OPTION = 'rolepod_wp_backups';
     private const LOCK = 'rolepod_wp_backup_lock';
+    private const START_LOCK = 'rolepod_wp_backup_starting';
 
     // CPU is controlled by the per-tick TIME BUDGET (work flat-out, then yield
     // the request so the worker is freed) — NOT by sleeping between items.
@@ -57,8 +58,16 @@ final class Engine
      */
     public static function start(array $components, array $opts = []): array
     {
+        // Short start-mutex: closes the check-then-act race where a manual click
+        // and the scheduled cron both pass the running-check and create two jobs.
+        if (get_transient(self::START_LOCK)) {
+            return ['ok' => false, 'error' => 'ALREADY_RUNNING', 'job' => self::status()];
+        }
+        set_transient(self::START_LOCK, time(), 15);
+
         $existing = self::raw();
         if (($existing['status'] ?? '') === 'running') {
+            delete_transient(self::START_LOCK);
             return ['ok' => false, 'error' => 'ALREADY_RUNNING', 'job' => self::status()];
         }
 
@@ -90,6 +99,7 @@ final class Engine
             'id' => $id,
             'status' => 'running',
             'stage' => $comp['db'] ? 'db' : 'files',
+            'origin' => (($opts['origin'] ?? '') === 'scheduled') ? 'scheduled' : 'manual',
             'bg_secret' => bin2hex(random_bytes(16)),
             'components' => $comp,
             'compress' => (bool) ($opts['compress'] ?? true),
@@ -105,6 +115,7 @@ final class Engine
             'error' => null,
         ];
         update_option(self::JOB_OPTION, $job, false);
+        delete_transient(self::START_LOCK);
         self::ensureScheduled();
         // Kick a self-sustaining server-side loopback chain so the backup runs
         // to completion even if the browser is closed and the site gets no
@@ -602,9 +613,7 @@ final class Engine
             'imported' => true,
             'source_url' => (string) ($mj['site']['home_url'] ?? ''),
         ]);
-        if (count($h) > 50) {
-            $h = array_slice($h, 0, 50);
-        }
+        $h = self::capHistory($h);
         update_option(self::HISTORY_OPTION, $h, false);
     }
 
@@ -622,11 +631,112 @@ final class Engine
             'components' => $job['components'],
             'db_rows' => $job['db']['rows'] ?? 0,
             'files_count' => $job['stats']['files_count'],
+            'origin' => ($job['origin'] ?? '') === 'scheduled' ? 'scheduled' : 'manual',
         ]);
-        if (count($h) > 50) {
-            $h = array_slice($h, 0, 50);
-        }
+        $h = self::capHistory($h);
         update_option(self::HISTORY_OPTION, $h, false);
+
+        // Enforce retention ("keep last N") + reclaim any stray orphans.
+        self::pruneToRetention(Schedule::retention());
+        self::sweepOrphans();
+    }
+
+    /**
+     * Trim history to a hard ceiling, DELETING the zip of every evicted row so
+     * the option cap can never silently leak archives on disk. The active
+     * restore source is never deleted.
+     *
+     * @param array<int,array<string,mixed>> $h
+     * @return array<int,array<string,mixed>>
+     */
+    private static function capHistory(array $h, int $cap = 50): array
+    {
+        if (count($h) <= $cap) {
+            return $h;
+        }
+        $activeRestore = RestoreEngine::activeBackupZip();
+        foreach (array_slice($h, $cap) as $drop) {
+            $z = (string) ($drop['zip_path'] ?? '');
+            if ($z !== '' && $z !== $activeRestore && is_file($z)) {
+                @unlink($z);
+            }
+        }
+        return array_slice($h, 0, $cap);
+    }
+
+    /**
+     * Delete any *.zip in the backups dir that no history row references — catches
+     * archives orphaned by a crash between finalize and recordHistory. Never
+     * touches the zip an active backup is building or an active restore is reading.
+     */
+    public static function sweepOrphans(): void
+    {
+        $dir = self::backupsDir();
+        if ($dir === '') {
+            return;
+        }
+        $referenced = [];
+        foreach (self::history() as $b) {
+            $z = (string) ($b['zip_path'] ?? '');
+            if ($z !== '') {
+                $referenced[$z] = true;
+            }
+        }
+        $activeRestore = RestoreEngine::activeBackupZip();
+        $job = get_option(self::JOB_OPTION, []);
+        $activeBackup = is_array($job) ? (string) ($job['zip_path'] ?? '') : '';
+        foreach ((array) glob($dir . '/*.zip') as $z) {
+            $z = (string) $z;
+            if (isset($referenced[$z]) || $z === $activeRestore || $z === $activeBackup) {
+                continue;
+            }
+            @unlink($z);
+        }
+    }
+
+    /**
+     * Keep only the newest $keep SCHEDULED backups; delete the older scheduled
+     * ones (zip + history row). Manual and imported backups are user-initiated
+     * and never auto-pruned — they are kept until manually deleted (or evicted
+     * by the hard 50-row cap, which also unlinks). Never deletes the backup a
+     * restore is actively reading. $keep <= 0 = unlimited.
+     */
+    public static function pruneToRetention(int $keep): void
+    {
+        if ($keep <= 0) {
+            return;
+        }
+        $h = self::history();
+        $activeRestore = RestoreEngine::activeBackupZip();
+        $kept = 0;
+        $survivors = [];
+        $deleted = [];
+        foreach ($h as $b) {
+            // Only scheduled backups are subject to "keep last N" retention;
+            // manual + imported are exempt.
+            if (($b['origin'] ?? 'manual') !== 'scheduled') {
+                $survivors[] = $b;
+                continue;
+            }
+            $kept++;
+            if ($kept <= $keep) {
+                $survivors[] = $b;
+                continue;
+            }
+            $zip = (string) ($b['zip_path'] ?? '');
+            if ($zip !== '' && $zip === $activeRestore) {
+                // Don't delete a backup mid-restore — keep it this round.
+                $survivors[] = $b;
+                continue;
+            }
+            if ($zip !== '' && is_file($zip)) {
+                @unlink($zip);
+            }
+            $deleted[] = $b['id'] ?? '';
+        }
+        if ($deleted !== []) {
+            update_option(self::HISTORY_OPTION, array_values($survivors), false);
+        }
     }
 
     private static function cleanupBuild(array $job): void

@@ -552,6 +552,17 @@ final class RestoreEngine
         self::unschedule();
     }
 
+    /** Zip path of the backup currently being restored (running), else null. */
+    public static function activeBackupZip(): ?string
+    {
+        $j = self::raw();
+        if (($j['status'] ?? '') !== 'running') {
+            return null;
+        }
+        $zip = (string) ($j['zip_path'] ?? '');
+        return $zip !== '' ? $zip : null;
+    }
+
     public static function ensureScheduled(): void
     {
         if (!wp_next_scheduled(self::CRON_HOOK)) {

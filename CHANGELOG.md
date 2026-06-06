@@ -4,6 +4,31 @@ All notable changes to this plugin are documented here. Follows [Keep a Changelo
 
 Plugin versions track `@rolepod/wplab` MCP family. See `MIN_COMPANION_VERSION` in `rolepod-wplab/src/companion/constants.ts` for the floor the MCP client expects.
 
+## [2.22.1] — 2026-06-06 — Scheduled backups + retention (+ review fixes)
+
+### Added
+
+- **Scheduled backups** — a "Scheduled backups" card on the Backup admin page:
+  enable + frequency (hourly / daily / weekly) + components + compress. A WP-Cron
+  event starts a backup on the cadence (skips if one is already running).
+  `src/Backup/Schedule.php`.
+- **Retention** — "keep last N" auto-prunes older **scheduled** backups after
+  each backup completes. Manual backups and imports are never auto-deleted
+  (kept until manually deleted); everything is bounded by a hard 50-row cap.
+
+### Fixed (from a correctness/concurrency review)
+
+- **Disk leak**: the 50-row history cap dropped rows without deleting their zips,
+  leaking full-site archives on disk (worst on the default `retention=0`). The
+  cap now unlinks evicted zips, plus a `sweepOrphans()` reclaims any zip not
+  referenced by history (guarding the active backup/restore). `Engine::capHistory`,
+  `Engine::sweepOrphans`.
+- Retention is now applied to scheduled backups only (was pruning manual backups
+  too); each backup is tagged `origin` = scheduled|manual. Retention is clamped
+  to the 50-row ceiling in config + UI.
+- A short start-mutex closes the check-then-act race where a manual click and the
+  scheduled cron could both create a backup job. `Engine::start`.
+
 ## [2.21.1] — 2026-06-06 — Backup import + domain-first naming (+ security review fixes)
 
 ### Added
