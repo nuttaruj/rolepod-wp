@@ -80,6 +80,12 @@ final class ElementorCompat
         if ( ! is_string( $raw ) || $raw === '' ) {
             return $cache[ $post_id ] = [];
         }
+        // Cheap pre-check: if the layout has no custom CSS classes anywhere, no
+        // section can either — skip the json_decode + tree walk of a potentially
+        // large _elementor_data blob entirely (covers the common page).
+        if ( strpos( $raw, '_css_classes' ) === false ) {
+            return $cache[ $post_id ] = [];
+        }
         $tree = json_decode( $raw, true );
         if ( ! is_array( $tree ) ) {
             return $cache[ $post_id ] = [];

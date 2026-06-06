@@ -4,6 +4,28 @@ All notable changes to this plugin are documented here. Follows [Keep a Changelo
 
 Plugin versions track `@rolepod/wplab` MCP family. See `MIN_COMPANION_VERSION` in `rolepod-wplab/src/companion/constants.ts` for the floor the MCP client expects.
 
+## [2.20.2] — 2026-06-06 — Hot-path lean-up (audit: nothing slowed the front end; micro-cleanups)
+
+A full performance audit (front-end hot path, every-request bootstrap, the
+recovery mu-plugin, option autoload, background-job CPU, asset loading) found
+**no front-end slowdown** — assets load only on Rolepod admin screens, the
+audit-log / job / history options are all `autoload=false`, the htaccess
+writers run only on REST, the library scan is cached 1h, and the throttled
+backup/restore/media work only runs while a job is active. Two pure-waste
+micro-optimizations were applied so the steady-state request does zero needless
+work:
+
+### Changed
+
+- The `plugins_loaded` upgrade-probe (which read + regex-parsed the guardian
+  mu-plugin file twice on *every* request just to detect an update) now
+  short-circuits on a single autoloaded `rolepod_wp_boot_stamp` compare; the
+  filesystem/version check only runs once per plugin version (right after an
+  update). `rolepod-wp.php`.
+- `ElementorCompat` now skips the `_elementor_data` `json_decode` + tree walk on
+  Elementor front-end pages that contain no custom CSS classes at all (cheap
+  `strpos` pre-check). `src/ElementorCompat.php`.
+
 ## [2.20.1] — 2026-06-06 — "Keep this tab open" warning while a job runs
 
 ### Added

@@ -5,7 +5,7 @@
  * Description:       The WordPress arm of the Rolepod ecosystem (https://github.com/nuttaruj/rolepod). Exposes guarded REST endpoints so AI coding agents (Claude Code / Cursor / Codex / Gemini) — driven by the rolepod-wplab MCP server — can run runtime introspection, the one-click pair wizard, and (with explicit opt-in) execute-php on this WordPress install. Endpoints are OFF by default; enable per-feature in Settings → Rolepod for WordPress. v2.6 adds a mu-plugin recovery guardian that survives main-plugin parse/fatal errors.
  * Author:            nuttaruj
  * Author URI:        https://github.com/nuttaruj
- * Version:           2.20.1
+ * Version:           2.20.2
  * Requires at least: 6.0
  * Requires PHP:      7.4
  * License:           MIT
@@ -21,7 +21,7 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-define('ROLEPOD_WP_VERSION', '2.20.1');
+define('ROLEPOD_WP_VERSION', '2.20.2');
 define('ROLEPOD_WP_FILE', __FILE__);
 define('ROLEPOD_WP_DIR', plugin_dir_path(__FILE__));
 
@@ -213,6 +213,14 @@ add_action('upgrader_process_complete', static function ($upgrader, array $opts)
 // v2.6 — also re-installs the mu-plugin guardian on upgrade so users moving
 // from 2.5 → 2.6 get the recovery layer without manual reactivation.
 add_action('plugins_loaded', static function (): void {
+    // Steady-state fast path: this runs on EVERY request, so once we've verified
+    // the ledger schema + guardian for THIS plugin version, short-circuit on a
+    // single autoloaded-option compare (a free in-memory read) and skip all the
+    // filesystem/version probing below. The expensive path only runs once per
+    // plugin version — i.e. on the first request after an update.
+    if (get_option('rolepod_wp_boot_stamp') === ROLEPOD_WP_VERSION) {
+        return;
+    }
     $current = (string) get_option(\Rolepod\Wp\Audit\ChangeLedger::TABLE_VERSION_OPTION, '');
     if ($current !== \Rolepod\Wp\Audit\ChangeLedger::TABLE_VERSION) {
         \Rolepod\Wp\Audit\ChangeLedger::install();
@@ -223,6 +231,8 @@ add_action('plugins_loaded', static function (): void {
         // the bundled version. Idempotent + cheap (single file copy).
         \Rolepod\Wp\Guardian::install();
     }
+    // Stamp this version so subsequent requests take the fast path above.
+    update_option('rolepod_wp_boot_stamp', ROLEPOD_WP_VERSION);
 }, 5);
 
 register_activation_hook(__FILE__, static function (): void {
@@ -249,6 +259,9 @@ register_deactivation_hook(__FILE__, static function (): void {
     // v2.6 — Option A tight coupling: deactivate = guardian also removed.
     // Predictable "off completely" UX. Re-activate copies it back.
     \Rolepod\Wp\Guardian::remove();
+    // v2.20.2 — clear the boot fast-path stamp so a re-activate re-verifies the
+    // guardian/ledger (guardian was just removed above).
+    delete_option('rolepod_wp_boot_stamp');
     // v2.15 — stop the media-optimize cron so no orphaned event survives
     // deactivation (queue state is left intact for a later re-activate).
     \Rolepod\Wp\Media\Queue::unschedule();
