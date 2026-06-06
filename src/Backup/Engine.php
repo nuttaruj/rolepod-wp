@@ -62,12 +62,20 @@ final class Engine
             return ['ok' => false, 'error' => 'ALREADY_RUNNING', 'job' => self::status()];
         }
 
-        $id = 'bk_' . gmdate('Ymd-His') . '_' . substr(bin2hex(random_bytes(3)), 0, 6);
+        // Domain-first DISPLAY id so backups are self-identifying:
+        // <domain>-<date>-<time> (+ short suffix). This is a label only.
+        $id = self::siteSlug() . '-' . gmdate('Ymd-His') . '-' . substr(bin2hex(random_bytes(2)), 0, 4);
+        // The ON-DISK filename is an unguessable 128-bit token, decoupled from
+        // the readable id: the backups dir is only protected by an Apache-only
+        // .htaccess, so on Nginx/LiteSpeed the zip would otherwise be a
+        // brute-forceable public URL exposing the full DB dump. Downloads always
+        // go through PHP (streamDownload), so the on-disk name is never needed.
+        $disk = bin2hex(random_bytes(16));
         $dir = self::backupsDir();
         if ($dir === '') {
             return ['ok' => false, 'error' => 'BACKUP_DIR_UNWRITABLE'];
         }
-        $buildDir = $dir . '/.build-' . $id;
+        $buildDir = $dir . '/.build-' . $disk;
         wp_mkdir_p($buildDir);
 
         $comp = [
@@ -86,7 +94,7 @@ final class Engine
             'components' => $comp,
             'compress' => (bool) ($opts['compress'] ?? true),
             'exclude' => array_values(array_unique(array_merge(self::DEFAULT_EXCLUDES, (array) ($opts['exclude'] ?? [])))),
-            'zip_path' => $dir . '/' . $id . '.zip',
+            'zip_path' => $dir . '/' . $disk . '.zip',
             'build_dir' => $buildDir,
             'db' => ['tables' => Db::tables(), 'tidx' => 0, 'roffset' => 0, 'sql_path' => $buildDir . '/database.sql', 'rows' => 0],
             'files' => ['list_path' => $buildDir . '/filelist.txt', 'cursor' => 0, 'total' => 0, 'added' => 0, 'listed' => false],
@@ -519,6 +527,87 @@ final class Engine
         return true;
     }
 
+    /**
+     * Import an uploaded backup zip: validate it is genuinely one of our
+     * backups (a Rolepod manifest.json inside), store it under the backups dir
+     * (HTTP-denied), and register it in history so it can be viewed / restored.
+     * Only the central directory + manifest are read here; nothing is extracted.
+     *
+     * @return array{ok:bool,error?:string,message?:string,id?:string,bytes?:int,manifest?:array}
+     */
+    public static function importUpload(string $tmpPath, string $origName): array
+    {
+        if ($tmpPath === '' || !is_file($tmpPath)) {
+            return ['ok' => false, 'error' => 'NO_FILE'];
+        }
+        if (!class_exists('ZipArchive')) {
+            return ['ok' => false, 'error' => 'ZIP_UNAVAILABLE'];
+        }
+        $zip = new \ZipArchive();
+        if ($zip->open($tmpPath) !== true) {
+            return ['ok' => false, 'error' => 'NOT_A_ZIP', 'message' => 'That file is not a valid zip.'];
+        }
+        $raw = $zip->getFromName('manifest.json', 1_000_000);
+        $zip->close();
+        if ($raw === false) {
+            return ['ok' => false, 'error' => 'NO_MANIFEST', 'message' => 'Not a Rolepod backup (no manifest.json inside).'];
+        }
+        $mj = json_decode($raw, true);
+        if (!is_array($mj) || ($mj['format'] ?? '') !== Manifest::FORMAT) {
+            return ['ok' => false, 'error' => 'BAD_FORMAT', 'message' => 'Not a recognised Rolepod backup.'];
+        }
+
+        $dir = self::backupsDir();
+        if ($dir === '') {
+            return ['ok' => false, 'error' => 'DIR_UNWRITABLE'];
+        }
+        // Readable DISPLAY id from the uploaded filename (keeps the source
+        // domain-date naming if present); length-capped. The attacker-supplied
+        // name is NEVER used as the on-disk path — that is a random 128-bit
+        // token, so a crafted filename can't traverse, overwrite, or produce a
+        // guessable public URL.
+        $base = preg_replace('/[^A-Za-z0-9.\-]/', '-', (string) pathinfo($origName, PATHINFO_FILENAME)) ?? '';
+        $base = trim($base, '-.');
+        $base = substr($base, 0, 180);
+        if ($base === '') {
+            $base = self::siteSlug() . '-import-' . gmdate('Ymd-His');
+        }
+        $id = $base;
+        $disk = bin2hex(random_bytes(16));
+        $dest = $dir . '/' . $disk . '.zip';
+
+        $moved = is_uploaded_file($tmpPath) ? @move_uploaded_file($tmpPath, $dest) : @copy($tmpPath, $dest);
+        if (!$moved || !is_file($dest)) {
+            return ['ok' => false, 'error' => 'STORE_FAILED'];
+        }
+        @chmod($dest, 0640);
+        self::registerImported($id, $dest, $mj);
+        return ['ok' => true, 'id' => $id, 'bytes' => (int) filesize($dest), 'manifest' => $mj];
+    }
+
+    private static function registerImported(string $id, string $zipPath, array $mj): void
+    {
+        $h = get_option(self::HISTORY_OPTION, []);
+        if (!is_array($h)) {
+            $h = [];
+        }
+        array_unshift($h, [
+            'id' => $id,
+            'created_at' => time(),
+            'zip_path' => $zipPath,
+            'zip_bytes' => (int) filesize($zipPath),
+            'components' => $mj['components'] ?? [],
+            'db_rows' => (int) ($mj['components']['database']['rows'] ?? 0),
+            'files_count' => (int) ($mj['components']['files']['count'] ?? 0),
+            'imported' => true,
+            'source_url' => (string) ($mj['site']['home_url'] ?? ''),
+        ]);
+        if (count($h) > 50) {
+            $h = array_slice($h, 0, 50);
+        }
+        update_option(self::HISTORY_OPTION, $h, false);
+    }
+
     private static function recordHistory(array $job, array $manifest): void
     {
         $h = get_option(self::HISTORY_OPTION, []);
@@ -576,11 +665,32 @@ final class Engine
         return is_array($j) ? $j : [];
     }
 
+    /** Filename-safe slug of the site host, e.g. "demo.example.com". */
+    public static function siteSlug(): string
+    {
+        $host = (string) parse_url((string) home_url(), PHP_URL_HOST);
+        $slug = preg_replace('/[^A-Za-z0-9.\-]/', '-', $host) ?? '';
+        $slug = trim($slug, '-.');
+        return $slug !== '' ? $slug : 'site';
+    }
+
     public static function backupsDir(): string
     {
         $base = trailingslashit((string) (wp_upload_dir()['basedir'] ?? WP_CONTENT_DIR . '/uploads')) . 'rolepod-wp/backups';
         if (!is_dir($base) && !wp_mkdir_p($base)) {
             return '';
+        }
+        // Defense in depth on top of the unguessable on-disk filenames: deny
+        // direct web access on Apache (.htaccess) AND IIS (web.config). The
+        // primary protection is the random 128-bit filename — these only help
+        // on servers that honour them.
+        $ht = $base . '/.htaccess';
+        if (!is_file($ht)) {
+            @file_put_contents($ht, "Require all denied\nDeny from all\nOptions -Indexes\n");
+        }
+        $wc = $base . '/web.config';
+        if (!is_file($wc)) {
+            @file_put_contents($wc, "<?xml version=\"1.0\"?>\n<configuration><system.webServer><authorization><deny users=\"*\"/></authorization></system.webServer></configuration>\n");
         }
         return $base;
     }

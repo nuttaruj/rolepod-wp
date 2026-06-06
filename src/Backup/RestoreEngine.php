@@ -415,6 +415,13 @@ final class RestoreEngine
                 $job['files']['skipped']++;
                 continue;
             }
+            // Never write THROUGH a pre-existing symlink (it could redirect the
+            // write outside wp-content even though the path itself is in scope).
+            clearstatcache(true, $target);
+            if (is_link($target)) {
+                $job['files']['skipped']++;
+                continue;
+            }
             $dir = dirname($target);
             if (!is_dir($dir)) {
                 wp_mkdir_p($dir);

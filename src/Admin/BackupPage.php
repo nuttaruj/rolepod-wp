@@ -68,6 +68,7 @@ final class BackupPage
             </div>
             <aside class="rp-stack">
                 <?php self::renderStartCard($job); ?>
+                <?php self::renderImportCard(); ?>
             </aside>
         </div>
         <?php
@@ -195,6 +196,29 @@ final class BackupPage
         <?php
     }
 
+    private static function renderImportCard(): void
+    {
+        $maxUpload = function_exists('wp_max_upload_size') ? wp_max_upload_size() : 0;
+        ?>
+        <form method="post" enctype="multipart/form-data">
+            <?php wp_nonce_field(self::NONCE_ACTION, 'rolepod_wp_backup_nonce'); ?>
+            <div class="rp-card">
+                <div class="rp-card-head" style="padding:14px 18px 12px;">
+                    <div><h3 style="font-size:13.5px;">Import a backup</h3><div class="rp-sub" style="font-size:12px;">Upload a .zip from this or another site</div></div>
+                </div>
+                <div style="padding:12px 18px;">
+                    <input type="file" name="backup_zip" accept=".zip,application/zip" required style="width:100%;font-size:12px;">
+                    <div class="rp-desc" style="margin-top:6px;">
+                        Must be a Rolepod backup (its <code>manifest.json</code> format is checked, then it is stored). <strong>Restore it only if you trust the source</strong> — a restore runs the backup's SQL + overwrites files. Restoring from another domain auto-suggests the URL rewrite.
+                        <?php if ($maxUpload > 0): ?><br>Max upload here: <strong><?php echo esc_html(size_format($maxUpload)); ?></strong>.<?php endif; ?>
+                    </div>
+                    <button type="submit" name="backup_action" value="upload" class="rp-btn rp-btn-primary rp-btn-sm" style="margin-top:12px;width:100%;">Upload &amp; import</button>
+                </div>
+            </div>
+        </form>
+        <?php
+    }
+
     private static function renderJobCard(array $job): void
     {
         $status = (string) ($job['status'] ?? 'idle');
@@ -246,11 +270,17 @@ final class BackupPage
                         <?php foreach ($history as $b): ?>
                             <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;border:1px solid var(--rp-border);border-radius:6px;padding:9px 12px;">
                                 <div style="min-width:0;">
-                                    <div class="rp-mono" style="font-size:12px;"><?php echo esc_html((string) ($b['id'] ?? '')); ?></div>
+                                    <div class="rp-mono" style="font-size:12px;">
+                                        <?php echo esc_html((string) ($b['id'] ?? '')); ?>
+                                        <?php if (!empty($b['imported'])): ?><span class="rp-badge rp-badge-neutral" style="margin-left:6px;font-size:10px;">imported</span><?php endif; ?>
+                                    </div>
                                     <div style="font-size:11.5px;color:var(--rp-text-muted);">
                                         <?php echo esc_html(size_format((int) ($b['zip_bytes'] ?? 0), 1) ?: '0 B'); ?>
                                         &middot; <?php echo esc_html((string) ($b['files_count'] ?? 0)); ?> files
                                         &middot; <?php echo esc_html(human_time_diff((int) ($b['created_at'] ?? time()))); ?> ago
+                                        <?php if (!empty($b['imported']) && !empty($b['source_url'])): ?>
+                                            &middot; from <?php echo esc_html((string) parse_url((string) $b['source_url'], PHP_URL_HOST)); ?>
+                                        <?php endif; ?>
                                     </div>
                                 </div>
                                 <div style="display:flex;gap:6px;flex-shrink:0;">
@@ -561,6 +591,8 @@ final class BackupPage
                 $id = isset($_POST['backup_id']) ? sanitize_text_field((string) wp_unslash($_POST['backup_id'])) : '';
                 self::streamDownload($id); // exits on success
                 return ['type' => 'warning', 'message' => 'Backup not found.'];
+            case 'upload':
+                return self::handleUpload();
             case 'restore':
                 return self::handleRestore();
             case 'restore_cancel':
@@ -568,6 +600,29 @@ final class BackupPage
                 return ['type' => 'info', 'message' => 'Restore dismissed.'];
         }
         return null;
+    }
+
+    private static function handleUpload(): ?array
+    {
+        if (!current_user_can('manage_options')) {
+            return null;
+        }
+        $file = $_FILES['backup_zip'] ?? null;
+        if (!is_array($file) || empty($file['name'])) {
+            return ['type' => 'warning', 'message' => 'Choose a .zip backup to upload.'];
+        }
+        $err = (int) ($file['error'] ?? UPLOAD_ERR_NO_FILE);
+        if ($err !== UPLOAD_ERR_OK) {
+            $msg = ($err === UPLOAD_ERR_INI_SIZE || $err === UPLOAD_ERR_FORM_SIZE)
+                ? 'File is larger than the server upload limit.'
+                : 'Upload failed (error ' . $err . ').';
+            return ['type' => 'warning', 'message' => $msg];
+        }
+        $r = Engine::importUpload((string) ($file['tmp_name'] ?? ''), (string) $file['name']);
+        if (empty($r['ok'])) {
+            return ['type' => 'warning', 'message' => 'Import failed: ' . esc_html((string) ($r['message'] ?? $r['error'] ?? 'unknown')) . '.'];
+        }
+        return ['type' => 'success', 'message' => 'Imported <strong>' . esc_html((string) $r['id']) . '</strong> (' . esc_html(size_format((int) $r['bytes'], 1) ?: '?') . '). It is now in the list — View or Restore it.'];
     }
 
     private static function handleRestore(): ?array
@@ -601,9 +656,12 @@ final class BackupPage
         foreach (Engine::history() as $b) {
             if (($b['id'] ?? '') === $id && !empty($b['zip_path']) && is_file($b['zip_path'])) {
                 $path = (string) $b['zip_path'];
+                // Download with the READABLE id (the on-disk name is a random
+                // token); sanitize for the header to avoid CRLF/quote injection.
+                $name = preg_replace('/[^A-Za-z0-9._-]/', '-', (string) $id) ?: 'backup';
                 nocache_headers();
                 header('Content-Type: application/zip');
-                header('Content-Disposition: attachment; filename="' . basename($path) . '"');
+                header('Content-Disposition: attachment; filename="' . $name . '.zip"');
                 header('Content-Length: ' . filesize($path));
                 readfile($path);
                 exit;

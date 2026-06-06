@@ -4,6 +4,36 @@ All notable changes to this plugin are documented here. Follows [Keep a Changelo
 
 Plugin versions track `@rolepod/wplab` MCP family. See `MIN_COMPANION_VERSION` in `rolepod-wplab/src/companion/constants.ts` for the floor the MCP client expects.
 
+## [2.21.1] — 2026-06-06 — Backup import + domain-first naming (+ security review fixes)
+
+### Added
+
+- **Domain-first backup names** — the display id is now `<domain>-<YYYYMMDD-HHMMSS>`
+  (e.g. `demo.example.com-20260606-141500-ab12`) so backups are self-identifying.
+- **Import a backup** — upload a `.zip` (from this or another site) on the Backup
+  admin page. Its `manifest.json` format is validated, it is stored, and it shows
+  in the list as `imported` (with its source domain) — then View / Restore /
+  Download / Delete like any backup. Restoring an imported cross-domain backup
+  auto-suggests the serialized-safe URL rewrite (migration). `Engine::importUpload`,
+  `Endpoint`/`Admin\BackupPage`.
+
+### Security (from an adversarial review of the upload/storage path)
+
+- **Unguessable on-disk backup filenames.** The backups dir is protected only by
+  an Apache-only `.htaccess`, so on Nginx/LiteSpeed a backup zip (full DB dump +
+  files) would be a brute-forceable public URL. The on-disk filename is now a
+  random 128-bit token, fully decoupled from the readable display id (downloads
+  still stream through PHP and are named with the readable id). Applies to both
+  created and imported backups; an attacker-supplied upload filename is never
+  used as a path (no traversal/overwrite/guessable-URL). Also writes a `web.config`
+  deny (IIS) alongside the `.htaccess`. `Engine::start` / `importUpload` /
+  `backupsDir`, `BackupPage::streamDownload`.
+- **Restore symlink guard.** File extraction now refuses to write through a
+  pre-existing symlink target (closes a zip-slip-via-symlink escape that the
+  parent-dir scope check alone didn't cover). `RestoreEngine::stepFiles`.
+- Import UI copy now warns to restore only from trusted sources (a restore runs
+  the backup's SQL); imported-id length is capped.
+
 ## [2.20.2] — 2026-06-06 — Hot-path lean-up (audit: nothing slowed the front end; micro-cleanups)
 
 A full performance audit (front-end hot path, every-request bootstrap, the
