@@ -68,9 +68,7 @@ final class BackupPage
                 <?php self::renderHistoryCard($history); ?>
             </div>
             <aside class="rp-stack">
-                <?php self::renderStartCard($job); ?>
-                <?php self::renderScheduleCard(); ?>
-                <?php self::renderImportCard(); ?>
+                <?php self::renderActionPanel($job); ?>
             </aside>
         </div>
         <?php
@@ -165,113 +163,135 @@ final class BackupPage
         ]);
     }
 
-    private static function renderStartCard(array $job): void
+    /**
+     * One compact tabbed card (New / Schedule / Import) for the right column —
+     * CSS-only radio tabs, so only one form shows at a time instead of three
+     * stacked cards. The active tab follows the last submitted action so a saved
+     * Schedule/Import keeps its tab open after the reload.
+     */
+    private static function renderActionPanel(array $job): void
+    {
+        $action = isset($_POST['backup_action']) ? sanitize_text_field((string) wp_unslash($_POST['backup_action'])) : '';
+        $active = in_array($action, ['save_schedule'], true) ? 'sched'
+            : (in_array($action, ['upload'], true) ? 'imp' : 'new');
+        $sched = Schedule::get();
+        ?>
+        <div class="rp-card rp-actions">
+            <input type="radio" name="rp-actab" id="rp-tab-new" <?php checked($active, 'new'); ?>>
+            <input type="radio" name="rp-actab" id="rp-tab-sched" <?php checked($active, 'sched'); ?>>
+            <input type="radio" name="rp-actab" id="rp-tab-imp" <?php checked($active, 'imp'); ?>>
+            <nav class="rp-actab-nav">
+                <label for="rp-tab-new">New backup</label>
+                <label for="rp-tab-sched">Schedule<?php echo $sched['enabled'] ? ' <span class="rp-dotbadge"></span>' : ''; ?></label>
+                <label for="rp-tab-imp">Import</label>
+            </nav>
+            <div class="rp-actab-body b-new"><?php self::startBody($job); ?></div>
+            <div class="rp-actab-body b-sched"><?php self::scheduleBody($sched); ?></div>
+            <div class="rp-actab-body b-imp"><?php self::importBody(); ?></div>
+        </div>
+        <style>
+        .rp-actions{padding:0;overflow:hidden;}
+        .rp-actions > input[type=radio]{position:absolute;opacity:0;pointer-events:none;}
+        .rp-actab-nav{display:flex;border-bottom:1px solid var(--rp-border);padding:0 6px;}
+        .rp-actab-nav label{flex:1;text-align:center;padding:11px 6px;font-size:12.5px;cursor:pointer;color:var(--rp-text-muted);border-bottom:2px solid transparent;margin-bottom:-1px;white-space:nowrap;}
+        .rp-actab-nav label:hover{color:var(--rp-text);}
+        .rp-dotbadge{display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--rp-success-text,#18794e);vertical-align:middle;margin-left:2px;}
+        .rp-actab-body{display:none;padding:16px 18px;}
+        #rp-tab-new:checked ~ .b-new,
+        #rp-tab-sched:checked ~ .b-sched,
+        #rp-tab-imp:checked ~ .b-imp{display:block;}
+        #rp-tab-new:checked ~ .rp-actab-nav label[for=rp-tab-new],
+        #rp-tab-sched:checked ~ .rp-actab-nav label[for=rp-tab-sched],
+        #rp-tab-imp:checked ~ .rp-actab-nav label[for=rp-tab-imp]{color:var(--rp-text);border-bottom-color:var(--rp-accent,#2563eb);font-weight:600;}
+        </style>
+        <?php
+    }
+
+    private static function startBody(array $job): void
     {
         $running = ($job['status'] ?? '') === 'running';
         ?>
         <form method="post">
             <?php wp_nonce_field(self::NONCE_ACTION, 'rolepod_wp_backup_nonce'); ?>
-            <div class="rp-card">
-                <div class="rp-card-head" style="padding:14px 18px 12px;">
-                    <div><h3 style="font-size:13.5px;">New backup</h3><div class="rp-sub" style="font-size:12px;">Pick what to include</div></div>
-                </div>
-                <div style="padding:12px 18px;">
-                    <div style="display:grid;gap:8px;font-size:13px;">
-                        <?php
-                        self::checkbox('c_db', 'Database', true);
-                        self::checkbox('c_uploads', 'Uploads (media)', true);
-                        self::checkbox('c_themes', 'Themes', true);
-                        self::checkbox('c_plugins', 'Plugins', false);
-                        self::checkbox('c_muplugins', 'mu-plugins', false);
-                        ?>
-                        <label style="display:flex;align-items:center;gap:8px;margin-top:6px;border-top:1px solid var(--rp-border);padding-top:10px;">
-                            <input type="checkbox" name="compress" value="1" checked>
-                            <span>Compress text/SQL (media stored as-is)</span>
-                        </label>
-                    </div>
-                    <button type="submit" name="backup_action" value="start" class="rp-btn rp-btn-primary" style="margin-top:14px;width:100%;" <?php disabled($running); ?>>
-                        <?php echo $running ? 'Backup running…' : 'Start backup'; ?>
-                    </button>
-                </div>
+            <div style="display:grid;gap:8px;font-size:13px;">
+                <?php
+                self::checkbox('c_db', 'Database', true);
+                self::checkbox('c_uploads', 'Uploads (media)', true);
+                self::checkbox('c_themes', 'Themes', true);
+                self::checkbox('c_plugins', 'Plugins', false);
+                self::checkbox('c_muplugins', 'mu-plugins', false);
+                ?>
+                <label style="display:flex;align-items:center;gap:8px;margin-top:6px;border-top:1px solid var(--rp-border);padding-top:10px;">
+                    <input type="checkbox" name="compress" value="1" checked>
+                    <span>Compress text/SQL (media stored as-is)</span>
+                </label>
             </div>
+            <button type="submit" name="backup_action" value="start" class="rp-btn rp-btn-primary" style="margin-top:14px;width:100%;" <?php disabled($running); ?>>
+                <?php echo $running ? 'Backup running…' : 'Start backup now'; ?>
+            </button>
         </form>
         <?php
     }
 
-    private static function renderScheduleCard(): void
+    /** @param array<string,mixed> $cfg */
+    private static function scheduleBody(array $cfg): void
     {
-        $cfg = Schedule::get();
         $next = Schedule::nextRun();
         ?>
         <form method="post">
             <?php wp_nonce_field(self::NONCE_ACTION, 'rolepod_wp_backup_nonce'); ?>
-            <div class="rp-card">
-                <div class="rp-card-head" style="padding:14px 18px 12px;">
-                    <div><h3 style="font-size:13.5px;">Scheduled backups</h3><div class="rp-sub" style="font-size:12px;">Auto-backup on a schedule + keep last N</div></div>
-                    <span class="rp-badge <?php echo $cfg['enabled'] ? 'rp-badge-success' : 'rp-badge-neutral'; ?>"><?php echo $cfg['enabled'] ? 'On' : 'Off'; ?></span>
-                </div>
-                <div style="padding:12px 18px;">
-                    <label style="display:flex;align-items:center;gap:8px;font-size:13px;margin-bottom:12px;">
-                        <input type="checkbox" name="sch_enabled" value="1" <?php checked($cfg['enabled']); ?>>
-                        <span><strong>Enable scheduled backups</strong></span>
-                    </label>
-                    <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:12px;">
-                        <label style="font-size:12px;">Frequency<br>
-                            <select name="sch_frequency" style="font-size:12.5px;padding:6px;">
-                                <option value="hourly" <?php selected($cfg['frequency'], 'hourly'); ?>>Hourly</option>
-                                <option value="daily" <?php selected($cfg['frequency'], 'daily'); ?>>Daily</option>
-                                <option value="weekly" <?php selected($cfg['frequency'], 'weekly'); ?>>Weekly</option>
-                            </select>
-                        </label>
-                        <label style="font-size:12px;">Keep last N (0 = all)<br>
-                            <input type="number" name="sch_retention" value="<?php echo (int) $cfg['retention']; ?>" min="0" max="50" style="width:90px;padding:6px;">
-                        </label>
-                    </div>
-                    <div style="font-size:12px;font-weight:600;margin-bottom:6px;">Include</div>
-                    <div style="display:grid;gap:6px;font-size:13px;margin-bottom:10px;">
-                        <?php
-                        self::checkbox('sch_c_db', 'Database', $cfg['components']['db']);
-                        self::checkbox('sch_c_uploads', 'Uploads', $cfg['components']['uploads']);
-                        self::checkbox('sch_c_themes', 'Themes', $cfg['components']['themes']);
-                        self::checkbox('sch_c_plugins', 'Plugins', $cfg['components']['plugins']);
-                        self::checkbox('sch_c_muplugins', 'mu-plugins', $cfg['components']['muplugins']);
-                        ?>
-                        <label style="display:flex;align-items:center;gap:8px;border-top:1px solid var(--rp-border);padding-top:8px;">
-                            <input type="checkbox" name="sch_compress" value="1" <?php checked($cfg['compress']); ?>>
-                            <span>Compress text/SQL</span>
-                        </label>
-                    </div>
-                    <div style="font-size:12px;color:var(--rp-text-muted);margin-bottom:10px;">
-                        <?php if ($cfg['enabled'] && $next > 0): ?>Next run in <strong><?php echo esc_html(human_time_diff(time(), $next)); ?></strong> &middot; <?php endif; ?>
-                        Retention keeps the newest <strong><?php echo $cfg['retention'] > 0 ? (int) $cfg['retention'] : 'all'; ?></strong> <em>scheduled</em> backups; manual backups + imports are never auto-deleted (max 50 kept total).
-                    </div>
-                    <button type="submit" name="backup_action" value="save_schedule" class="rp-btn rp-btn-primary rp-btn-sm" style="width:100%;">Save schedule</button>
-                    <div class="rp-desc" style="margin-top:8px;">Runs via WP-Cron (fires on site traffic). For exact timing on a quiet site, use a real system cron.</div>
-                </div>
+            <label style="display:flex;align-items:center;gap:8px;font-size:13px;margin-bottom:12px;">
+                <input type="checkbox" name="sch_enabled" value="1" <?php checked($cfg['enabled']); ?>>
+                <span><strong>Enable scheduled backups</strong></span>
+            </label>
+            <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:12px;">
+                <label style="font-size:12px;">Frequency<br>
+                    <select name="sch_frequency" style="font-size:12.5px;padding:6px;">
+                        <option value="hourly" <?php selected($cfg['frequency'], 'hourly'); ?>>Hourly</option>
+                        <option value="daily" <?php selected($cfg['frequency'], 'daily'); ?>>Daily</option>
+                        <option value="weekly" <?php selected($cfg['frequency'], 'weekly'); ?>>Weekly</option>
+                    </select>
+                </label>
+                <label style="font-size:12px;">Keep last N (0 = all)<br>
+                    <input type="number" name="sch_retention" value="<?php echo (int) $cfg['retention']; ?>" min="0" max="50" style="width:90px;padding:6px;">
+                </label>
             </div>
+            <div style="font-size:12px;font-weight:600;margin-bottom:6px;">Include</div>
+            <div style="display:grid;gap:6px;font-size:13px;margin-bottom:10px;">
+                <?php
+                self::checkbox('sch_c_db', 'Database', $cfg['components']['db']);
+                self::checkbox('sch_c_uploads', 'Uploads', $cfg['components']['uploads']);
+                self::checkbox('sch_c_themes', 'Themes', $cfg['components']['themes']);
+                self::checkbox('sch_c_plugins', 'Plugins', $cfg['components']['plugins']);
+                self::checkbox('sch_c_muplugins', 'mu-plugins', $cfg['components']['muplugins']);
+                ?>
+                <label style="display:flex;align-items:center;gap:8px;border-top:1px solid var(--rp-border);padding-top:8px;">
+                    <input type="checkbox" name="sch_compress" value="1" <?php checked($cfg['compress']); ?>>
+                    <span>Compress text/SQL</span>
+                </label>
+            </div>
+            <div style="font-size:12px;color:var(--rp-text-muted);margin-bottom:10px;">
+                <?php if ($cfg['enabled'] && $next > 0): ?>Next run in <strong><?php echo esc_html(human_time_diff(time(), $next)); ?></strong> &middot; <?php endif; ?>
+                Retention keeps the newest <strong><?php echo $cfg['retention'] > 0 ? (int) $cfg['retention'] : 'all'; ?></strong> <em>scheduled</em> backups; manual + imports are never auto-deleted (max 50 total).
+            </div>
+            <button type="submit" name="backup_action" value="save_schedule" class="rp-btn rp-btn-primary rp-btn-sm" style="width:100%;">Save schedule</button>
+            <div class="rp-desc" style="margin-top:8px;">Runs via WP-Cron (fires on site traffic). For exact timing on a quiet site, use a real system cron.</div>
         </form>
         <?php
     }
 
-    private static function renderImportCard(): void
+    private static function importBody(): void
     {
         $maxUpload = function_exists('wp_max_upload_size') ? wp_max_upload_size() : 0;
         ?>
         <form method="post" enctype="multipart/form-data">
             <?php wp_nonce_field(self::NONCE_ACTION, 'rolepod_wp_backup_nonce'); ?>
-            <div class="rp-card">
-                <div class="rp-card-head" style="padding:14px 18px 12px;">
-                    <div><h3 style="font-size:13.5px;">Import a backup</h3><div class="rp-sub" style="font-size:12px;">Upload a .zip from this or another site</div></div>
-                </div>
-                <div style="padding:12px 18px;">
-                    <input type="file" name="backup_zip" accept=".zip,application/zip" required style="width:100%;font-size:12px;">
-                    <div class="rp-desc" style="margin-top:6px;">
-                        Must be a Rolepod backup (its <code>manifest.json</code> format is checked, then it is stored). <strong>Restore it only if you trust the source</strong> — a restore runs the backup's SQL + overwrites files. Restoring from another domain auto-suggests the URL rewrite.
-                        <?php if ($maxUpload > 0): ?><br>Max upload here: <strong><?php echo esc_html(size_format($maxUpload)); ?></strong>.<?php endif; ?>
-                    </div>
-                    <button type="submit" name="backup_action" value="upload" class="rp-btn rp-btn-primary rp-btn-sm" style="margin-top:12px;width:100%;">Upload &amp; import</button>
-                </div>
+            <input type="file" name="backup_zip" accept=".zip,application/zip" required style="width:100%;font-size:12px;">
+            <div class="rp-desc" style="margin-top:6px;">
+                Must be a Rolepod backup (its <code>manifest.json</code> format is checked, then it is stored). <strong>Restore it only if you trust the source</strong> — a restore runs the backup's SQL + overwrites files. Restoring from another domain auto-suggests the URL rewrite.
+                <?php if ($maxUpload > 0): ?><br>Max upload here: <strong><?php echo esc_html(size_format($maxUpload)); ?></strong>.<?php endif; ?>
             </div>
+            <button type="submit" name="backup_action" value="upload" class="rp-btn rp-btn-primary rp-btn-sm" style="margin-top:12px;width:100%;">Upload &amp; import</button>
         </form>
         <?php
     }
