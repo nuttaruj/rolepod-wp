@@ -5,7 +5,7 @@
  * Description:       The WordPress arm of the Rolepod ecosystem (https://github.com/nuttaruj/rolepod). Exposes guarded REST endpoints so AI coding agents (Claude Code / Cursor / Codex / Gemini) — driven by the rolepod-wplab MCP server — can run runtime introspection, the one-click pair wizard, and (with explicit opt-in) execute-php on this WordPress install. Endpoints are OFF by default; enable per-feature in Settings → Rolepod for WordPress. v2.6 adds a mu-plugin recovery guardian that survives main-plugin parse/fatal errors.
  * Author:            nuttaruj
  * Author URI:        https://github.com/nuttaruj
- * Version:           2.19.2
+ * Version:           2.20.0
  * Requires at least: 6.0
  * Requires PHP:      7.4
  * License:           MIT
@@ -21,7 +21,7 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-define('ROLEPOD_WP_VERSION', '2.19.2');
+define('ROLEPOD_WP_VERSION', '2.20.0');
 define('ROLEPOD_WP_FILE', __FILE__);
 define('ROLEPOD_WP_DIR', plugin_dir_path(__FILE__));
 
@@ -168,6 +168,12 @@ add_action('wp_ajax_nopriv_' . \Rolepod\Wp\Backup\RestoreEngine::AJAX_ACTION, [\
 
 // v2.19.1 — admin-ajax poll for the live, no-reload progress bar.
 add_action('wp_ajax_rolepod_wp_backup_poll', [\Rolepod\Wp\Admin\BackupPage::class, 'ajaxPoll']);
+
+// v2.20 — media-optimize loopback chain (runs the queue back-to-back instead of
+// one batch per cron minute) + live poll for the Media page.
+add_action('wp_ajax_' . \Rolepod\Wp\Media\Queue::AJAX_ACTION, [\Rolepod\Wp\Media\Queue::class, 'handleLoopback']);
+add_action('wp_ajax_nopriv_' . \Rolepod\Wp\Media\Queue::AJAX_ACTION, [\Rolepod\Wp\Media\Queue::class, 'handleLoopback']);
+add_action('wp_ajax_rolepod_wp_media_poll', [\Rolepod\Wp\Admin\MediaPage::class, 'ajaxPoll']);
 
 // v2.9.0 — GitHub-based auto-updater. Polls releases/latest at the cadence
 // WP polls the plugin update transient (default 12h); responds via the

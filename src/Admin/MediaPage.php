@@ -97,16 +97,18 @@ final class MediaPage
                             $pctDone = $total > 0 ? (int) round($done / $total * 100) : 0;
                             ?>
                             <div style="display:flex;justify-content:space-between;font-size:12.5px;margin-bottom:6px;">
-                                <span><?php echo esc_html($done . ' / ' . $total); ?> processed</span>
-                                <span class="rp-mono"><?php echo esc_html((string) $pctDone); ?>%</span>
+                                <span id="rp-mq-stat"><?php echo esc_html($done . ' / ' . $total); ?> processed</span>
+                                <span class="rp-mono" id="rp-mq-pct"><?php echo esc_html((string) $pctDone); ?>%</span>
                             </div>
                             <div style="height:8px;border-radius:6px;background:var(--rp-surface-sunken);overflow:hidden;">
-                                <div style="height:100%;width:<?php echo (int) $pctDone; ?>%;background:var(--rp-accent,#2563eb);transition:width .3s;"></div>
+                                <div id="rp-mq-bar" style="height:100%;width:<?php echo (int) $pctDone; ?>%;background:var(--rp-accent,#2563eb);transition:width .6s ease;"></div>
                             </div>
                             <div style="margin-top:8px;font-size:12px;color:var(--rp-text-muted);">
-                                <?php echo esc_html((int) $queue['remaining']); ?> remaining
-                                &middot; batch <?php echo esc_html((string) ($queue['settings']['batch'] ?? 3)); ?>/min
-                                &middot; cron <?php echo $queue['scheduled'] ? 'scheduled' : 'idle'; ?>
+                                <?php if ($queue['status'] === 'running'): ?>
+                                    Optimizing automatically in the background — this page updates live. You can leave or come back later.
+                                <?php else: ?>
+                                    <?php echo esc_html((int) $queue['remaining']); ?> remaining
+                                <?php endif; ?>
                             </div>
                         <?php else: ?>
                             <p style="margin:0;color:var(--rp-text-muted);"><em>Queue is empty.</em></p>
@@ -129,7 +131,6 @@ final class MediaPage
                         <form method="post" style="margin-top:10px;display:flex;gap:6px;flex-wrap:wrap;">
                             <?php wp_nonce_field(self::NONCE_ACTION, 'rolepod_wp_media_nonce'); ?>
                             <?php if ($queue['status'] === 'running'): ?>
-                                <button type="submit" name="media_action" value="process_now" class="rp-btn rp-btn-sm">Process now</button>
                                 <button type="submit" name="media_action" value="pause" class="rp-btn rp-btn-sm rp-btn-ghost">Pause</button>
                             <?php elseif ($queue['status'] === 'paused'): ?>
                                 <button type="submit" name="media_action" value="resume" class="rp-btn rp-btn-sm rp-btn-primary">Resume</button>
@@ -168,8 +169,60 @@ final class MediaPage
             </aside>
         </div>
         <?php
-        Shell::footer('Background optimization trickles via WP-Cron. For a hands-off site, run a real system cron.');
+        if (($queue['status'] ?? '') === 'running') {
+            self::livePollScript();
+        }
+        Shell::footer('Optimization runs in the background in small bursts — no CPU spike. Keeps going even if you close this page.');
         Shell::close();
+    }
+
+    /** In-place live progress via AJAX poll — no page reload (mirrors BackupPage). */
+    private static function livePollScript(): void
+    {
+        $nonce = wp_create_nonce(self::NONCE_ACTION . '_poll');
+        ?>
+        <script>
+        (function () {
+            var nonce = <?php echo wp_json_encode($nonce); ?>;
+            var url = (window.ajaxurl || '<?php echo esc_js(admin_url('admin-ajax.php')); ?>');
+            function poll() {
+                fetch(url + '?action=rolepod_wp_media_poll&_wpnonce=' + encodeURIComponent(nonce), { credentials: 'same-origin' })
+                    .then(function (r) { return r.json(); })
+                    .then(function (d) {
+                        var bar = document.getElementById('rp-mq-bar');
+                        var pct = document.getElementById('rp-mq-pct');
+                        var stat = document.getElementById('rp-mq-stat');
+                        if (bar) bar.style.width = (d.percent | 0) + '%';
+                        if (pct) pct.textContent = (d.percent | 0) + '%';
+                        if (stat && d.line) stat.textContent = d.line;
+                        if (d.status === 'running') { setTimeout(poll, 1200); }
+                        else { window.location = window.location.pathname + window.location.search; }
+                    })
+                    .catch(function () { setTimeout(poll, 3000); });
+            }
+            setTimeout(poll, 1200);
+        })();
+        </script>
+        <?php
+    }
+
+    /** admin-ajax: compact live queue status + re-arm the loopback chain. */
+    public static function ajaxPoll(): void
+    {
+        if (!current_user_can('manage_options') || !wp_verify_nonce((string) ($_REQUEST['_wpnonce'] ?? ''), self::NONCE_ACTION . '_poll')) {
+            wp_send_json_error([], 403);
+        }
+        $q = Queue::status();
+        if (($q['status'] ?? '') === 'running') {
+            Queue::spawnLoopback();
+        }
+        $total = (int) ($q['total'] ?? 0);
+        $done = (int) ($q['done'] ?? 0);
+        wp_send_json([
+            'status' => $q['status'] ?? 'idle',
+            'percent' => $total > 0 ? (int) round($done / $total * 100) : 0,
+            'line' => $done . ' / ' . $total . ' processed',
+        ]);
     }
 
     private static function stat(string $label, string $value): void
@@ -189,7 +242,7 @@ final class MediaPage
             ? sanitize_text_field((string) wp_unslash($_POST['media_action']))
             : '';
 
-        if (in_array($action, ['enqueue', 'process_now'], true) && get_option('rolepod_wp_safe_mode', false)) {
+        if ($action === 'enqueue' && get_option('rolepod_wp_safe_mode', false)) {
             return ['type' => 'warning', 'message' => 'Guardian safe-mode is on — media writes are paused. Clear safe-mode on the Settings page first.'];
         }
 
@@ -206,9 +259,6 @@ final class MediaPage
                     return ['type' => 'info', 'message' => 'No images over that size threshold — nothing to queue.'];
                 }
                 return ['type' => 'success', 'message' => 'Queued <strong>' . count($ids) . '</strong> image' . (count($ids) === 1 ? '' : 's') . ' for throttled background optimization.'];
-            case 'process_now':
-                $r = Queue::tick();
-                return ['type' => 'success', 'message' => 'Processed ' . (int) $r['processed'] . ' (skipped ' . (int) $r['skipped'] . ') · ' . (int) $r['remaining'] . ' remaining.'];
             case 'pause':
                 Queue::pause();
                 return ['type' => 'info', 'message' => 'Queue paused.'];

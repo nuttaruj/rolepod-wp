@@ -4,6 +4,22 @@ All notable changes to this plugin are documented here. Follows [Keep a Changelo
 
 Plugin versions track `@rolepod/wplab` MCP family. See `MIN_COMPANION_VERSION` in `rolepod-wplab/src/companion/constants.ts` for the floor the MCP client expects.
 
+## [2.20.0] — 2026-06-06 — Media optimize: loopback + speed + smooth UI (parity with backup)
+
+### Changed
+
+- The media-optimize background queue now uses the same model as backup: a
+  **self-sustaining loopback chain** runs batches back-to-back instead of one
+  small batch per cron minute (a big library used to crawl — e.g. 3 images/min),
+  the per-image `usleep` is gone (CPU is bounded by a per-tick TIME BUDGET, then
+  the request yields), and batch caps are raised so the time-box is the limiter.
+  A 4-image queue drained in **under a second** (was up to ~2 minutes).
+  `src/Media/Queue.php`.
+- The **Media admin page** matches Backup: the optimizer runs automatically
+  (loopback + cron), the progress bar updates in place via a ~1.2s AJAX poll
+  (no page reload), and the confusing "Process now" button is removed.
+  `src/Admin/MediaPage.php`.
+
 ## [2.19.2] — 2026-06-06 — Backup/restore speed: drop the per-item sleep (minutes → ~1s)
 
 ### Changed

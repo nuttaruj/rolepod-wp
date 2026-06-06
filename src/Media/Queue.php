@@ -19,14 +19,20 @@ final class Queue
 {
     public const CRON_HOOK = 'rolepod_wp_media_optimize_tick';
     public const SCHEDULE = 'rolepod_wp_minute';
+    public const AJAX_ACTION = 'rolepod_wp_bg_media';
     private const OPTION = 'rolepod_wp_media_queue';
     private const LOCK = 'rolepod_wp_media_lock';
 
-    private const BATCH_DEFAULT = 3;
-    private const BATCH_MAX = 10;
-    private const SLEEP_US = 200_000;   // 200ms between images — keeps CPU cool
-    private const TICK_BUDGET_S = 8.0;  // yield after ~8s so no request runs long
-    private const LOCK_TTL = 120;
+    // CPU is bounded by the per-tick TIME BUDGET, then the request yields — and a
+    // self-sustaining loopback chain runs ticks back-to-back instead of waiting
+    // for a cron tick once a minute (which made a big library take ~ages). No
+    // per-item sleep: an image encode already paces CPU; the sleep was pure
+    // extra latency. BATCH is a high safety cap so the time-box is the limiter.
+    private const BATCH_DEFAULT = 200;
+    private const BATCH_MAX = 2000;
+    private const SLEEP_US = 0;
+    private const TICK_BUDGET_S = 10.0;
+    private const LOCK_TTL = 60;
 
     /**
      * Register the 1-minute cron schedule. Hook on `cron_schedules`.
@@ -61,6 +67,7 @@ final class Queue
                 'batch' => max(1, min(self::BATCH_MAX, (int) ($settings['batch'] ?? self::BATCH_DEFAULT))),
             ],
             'status' => $ids === [] ? 'idle' : 'running',
+            'bg_secret' => bin2hex(random_bytes(16)),
             'started_at' => time(),
             'completed_at' => 0,
         ];
@@ -68,8 +75,45 @@ final class Queue
 
         if ($ids !== []) {
             self::ensureScheduled();
+            // Self-sustaining loopback chain — runs ticks back-to-back without
+            // waiting for the once-a-minute cron (cron stays as a fallback).
+            self::spawnLoopback();
         }
         return self::status();
+    }
+
+    /** Fire a non-blocking loopback that runs the next tick + re-spawns. */
+    public static function spawnLoopback(): void
+    {
+        $q = self::raw();
+        if (($q['status'] ?? '') !== 'running' || empty($q['bg_secret'])) {
+            return;
+        }
+        wp_remote_post(admin_url('admin-ajax.php'), [
+            'timeout' => 0.01,
+            'blocking' => false,
+            'sslverify' => false,
+            'cookies' => [],
+            'body' => ['action' => self::AJAX_ACTION, 'secret' => (string) $q['bg_secret']],
+        ]);
+    }
+
+    /** admin-ajax handler for the media loopback chain (secret-authenticated). */
+    public static function handleLoopback(): void
+    {
+        $secret = isset($_REQUEST['secret']) ? sanitize_text_field((string) wp_unslash($_REQUEST['secret'])) : '';
+        $q = self::raw();
+        $expected = (string) ($q['bg_secret'] ?? '');
+        if (($q['status'] ?? '') !== 'running' || $expected === '' || !hash_equals($expected, $secret)) {
+            wp_die('', '', ['response' => 200]);
+        }
+        @set_time_limit(0);
+        @ignore_user_abort(true);
+        $result = self::tick();
+        if (($result['status'] ?? '') !== 'locked' && (self::raw()['status'] ?? '') === 'running') {
+            self::spawnLoopback();
+        }
+        wp_die('', '', ['response' => 200]);
     }
 
     /**
@@ -105,18 +149,15 @@ final class Queue
             $start = microtime(true);
             $processed = 0;
             $skipped = 0;
-            $first = true;
 
             while (
                 !empty($queue['ids'])
-                && $processed < $batch
+                && ($processed + $skipped) < $batch
                 && (microtime(true) - $start) < self::TICK_BUDGET_S
             ) {
-                if (!$first) {
-                    usleep(self::SLEEP_US); // throttle between images
+                if (self::SLEEP_US > 0) {
+                    usleep(self::SLEEP_US);
                 }
-                $first = false;
-
                 $id = (int) array_shift($queue['ids']);
                 $result = Optimizer::optimizeOne($id, $maxDim, $quality);
                 if (($result['action'] ?? '') === 'optimized') {
@@ -177,6 +218,7 @@ final class Queue
             $q['status'] = 'running';
             update_option(self::OPTION, $q, false);
             self::ensureScheduled();
+            self::spawnLoopback();
         }
     }
 
