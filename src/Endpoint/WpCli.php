@@ -102,6 +102,27 @@ final class WpCli
         $timeout = max(1, min(120, (int) $req->get_param('timeout_seconds')));
         $wpPath = ABSPATH;
 
+        // Catastrophic commands are refused unconditionally — no production
+        // check, no override. These destroy the site beyond recovery, and a
+        // token that can run wp-cli must still never run them. The Node side
+        // guards the same set, but a compromised or buggy client must not be
+        // the only thing standing between a token and `db drop`.
+        if (self::isCatastrophic($args)) {
+            $auditId = Log::append([
+                'endpoint' => 'wp-cli',
+                'user' => (string) wp_get_current_user()->user_login,
+                'site_url' => (string) get_option('siteurl'),
+                'result' => 'rejected',
+                'error' => 'CATASTROPHIC_BLOCKED; args=' . implode(' ', $args),
+            ]);
+            return new WP_REST_Response([
+                'ok' => false,
+                'error_code' => 'CATASTROPHIC_BLOCKED',
+                'error_message' => 'This wp-cli command is permanently blocked by the companion and cannot be run through the REST bridge.',
+                'audit_id' => $auditId,
+            ], 403);
+        }
+
         // Production guard for destructive ops — basic version. Real allow-list
         // lives on the Node MCP side (W-005); companion just refuses on prod.
         $matched = ProductionGuard::matchedPattern();
@@ -266,6 +287,36 @@ final class WpCli
         $destructive = ['db reset', 'db drop', 'core multisite-convert', 'plugin delete', 'theme delete'];
         foreach ($destructive as $d) {
             if (strpos($head, $d) === 0) return true;
+        }
+        return false;
+    }
+
+    /**
+     * Commands that destroy the site beyond recovery — refused with no override,
+     * mirroring the Node CATASTROPHIC set. `eval` is deliberately absent: the
+     * companion runs `wp eval` legitimately for internal operations.
+     *
+     * Global parameters (`wp --yes db reset`) are stripped first so the check
+     * cannot be bypassed by prefixing a flag.
+     */
+    private static function isCatastrophic(array $args): bool
+    {
+        $tokens = [];
+        foreach ($args as $a) {
+            if (is_string($a) && $a !== '' && $a[0] !== '-') {
+                $tokens[] = strtolower(trim($a));
+            }
+        }
+        $catastrophic = [
+            ['db', 'reset'],
+            ['db', 'drop'],
+            ['db', 'clean'],
+            ['core', 'multisite-convert'],
+        ];
+        foreach ($catastrophic as $cmd) {
+            if (($tokens[0] ?? null) === $cmd[0] && ($tokens[1] ?? null) === $cmd[1]) {
+                return true;
+            }
         }
         return false;
     }
