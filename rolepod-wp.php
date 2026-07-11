@@ -45,6 +45,10 @@ spl_autoload_register(static function (string $class): void {
 });
 
 add_action('rest_api_init', static function (): void {
+    // Fail-closed safe-mode gate — must arm before any endpoint so a mutating
+    // request is refused while safe-mode is on. Registered first for clarity;
+    // rest_pre_dispatch fires regardless of registration order.
+    \Rolepod\Wp\Security\SafeModeGuard::register();
     \Rolepod\Wp\Endpoint\Handshake::register();
     \Rolepod\Wp\Endpoint\Introspect::register();
     \Rolepod\Wp\Endpoint\ExecutePhp::register();
