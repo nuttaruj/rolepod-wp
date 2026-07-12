@@ -39,6 +39,9 @@ final class SafeModeGuard
         'php-session',
         'syntax-check',
         'request-observer',
+        // Pulling an existing archive offsite is read-only and is exactly what
+        // you want available during recovery.
+        'backup-download',
     ];
 
     /**

@@ -107,7 +107,7 @@ check('off: fs-write passes', gate($NS . 'fs-write', 'POST'), 'passed');
 $GLOBALS['__safe_mode'] = true;
 
 // mutating writes blocked (these are the endpoints the old code missed)
-foreach (['execute-php', 'fs-write', 'fs-write-batch', 'fs-copy', 'fs-rename', 'option-set', 'dir-ensure', 'skills', 'backup-restore', 'backup-delete', 'changes/panic', 'changes/toggle', 'job/create', 'admin/one-time-login', 'elementor/template-apply', 'theme/restore'] as $route) {
+foreach (['execute-php', 'fs-write', 'fs-write-batch', 'fs-copy', 'fs-rename', 'option-set', 'dir-ensure', 'skills', 'backup-restore', 'backup-delete', 'backup-import', 'media-import', 'changes/panic', 'changes/toggle', 'job/create', 'admin/one-time-login', 'elementor/template-apply', 'theme/restore'] as $route) {
     check("on: $route blocked", gate($NS . $route, 'POST'), 'blocked');
 }
 
@@ -120,6 +120,7 @@ check('on: POST introspect passes', gate($NS . 'introspect', 'POST'), 'passed');
 check('on: POST php-session passes', gate($NS . 'php-session', 'POST'), 'passed');
 check('on: POST syntax-check passes', gate($NS . 'syntax-check', 'POST'), 'passed');
 check('on: POST request-observer/poll passes', gate($NS . 'request-observer/poll', 'POST'), 'passed');
+check('on: POST backup-download passes (read-only, needed for recovery)', gate($NS . 'backup-download', 'POST'), 'passed');
 
 // wp-cli: read verbs pass, writes blocked (closes the old looksDestructive hole)
 check('on: wp-cli plugin list passes', gate($NS . 'wp-cli', 'POST', ['args' => ['plugin', 'list']]), 'passed');

@@ -7,6 +7,7 @@ use Rolepod\Wp\Audit\Log;
 use Rolepod\Wp\Backup\Archive;
 use Rolepod\Wp\Backup\Engine;
 use Rolepod\Wp\Backup\RestoreEngine;
+use Rolepod\Wp\Backup\Transfer;
 use Rolepod\Wp\Config;
 use Rolepod\Wp\Security\SessionToken;
 use WP_Error;
@@ -83,6 +84,32 @@ final class Backup
             'methods' => 'GET',
             'callback' => [self::class, 'restoreStatus'],
             'permission_callback' => [self::class, 'permission'],
+        ]);
+        // v2.23 — chunked offsite transfer: pull an archive out (download) or
+        // push one in from another host (import).
+        register_rest_route($ns, '/backup-download', [
+            'methods' => 'POST',
+            'callback' => [self::class, 'download'],
+            'permission_callback' => [self::class, 'permission'],
+            'args' => [
+                'session_token' => ['required' => true, 'type' => 'string'],
+                'id' => ['required' => true, 'type' => 'string'],
+                'offset' => ['required' => false, 'type' => 'integer', 'default' => 0],
+                'length' => ['required' => false, 'type' => 'integer', 'default' => Transfer::MAX_CHUNK],
+            ],
+        ]);
+        register_rest_route($ns, '/backup-import', [
+            'methods' => 'POST',
+            'callback' => [self::class, 'import'],
+            'permission_callback' => [self::class, 'permission'],
+            'args' => [
+                'session_token' => ['required' => true, 'type' => 'string'],
+                'upload_id' => ['required' => true, 'type' => 'string'],
+                'offset' => ['required' => true, 'type' => 'integer'],
+                'chunk' => ['required' => true, 'type' => 'string'],
+                'final' => ['required' => false, 'type' => 'boolean', 'default' => false],
+                'filename' => ['required' => false, 'type' => 'string'],
+            ],
         ]);
     }
 
@@ -197,6 +224,97 @@ final class Backup
     public static function restoreStatus(): WP_REST_Response
     {
         return new WP_REST_Response(['ok' => true, 'job' => RestoreEngine::status()], 200);
+    }
+
+    /**
+     * Chunked download of an existing archive. Read-only, so it stays available
+     * in safe-mode (see SafeModeGuard READ_ROUTES) — pulling a backup offsite is
+     * exactly what you want during recovery.
+     */
+    public static function download(WP_REST_Request $req): WP_REST_Response
+    {
+        if (!self::checkSession($req)) {
+            return new WP_REST_Response(['ok' => false, 'error_code' => 'INVALID_OR_EXPIRED_TOKEN'], 401);
+        }
+        $zip = self::resolveZip((string) $req->get_param('id'));
+        if ($zip === null) {
+            return new WP_REST_Response(['ok' => false, 'error_code' => 'BACKUP_NOT_FOUND'], 404);
+        }
+        $r = Transfer::readChunk($zip, (int) $req->get_param('offset'), (int) $req->get_param('length'));
+        if (empty($r['ok'])) {
+            return new WP_REST_Response(['ok' => false, 'error_code' => $r['error'] ?? 'READ_FAILED', 'total_bytes' => $r['total_bytes'] ?? null], 422);
+        }
+        return new WP_REST_Response($r, 200);
+    }
+
+    /**
+     * Chunked import of a backup pushed from another host. Each chunk appends to
+     * a staging file at its exact current end (OFFSET_MISMATCH otherwise); the
+     * final chunk hands the reassembled zip to Engine::importUpload, which is
+     * the authority on whether it is a real Rolepod backup. A write → refused in
+     * safe-mode.
+     */
+    public static function import(WP_REST_Request $req): WP_REST_Response
+    {
+        if (!self::checkSession($req)) {
+            return new WP_REST_Response(['ok' => false, 'error_code' => 'INVALID_OR_EXPIRED_TOKEN'], 401);
+        }
+        if ((bool) get_option('rolepod_wp_safe_mode', false)) {
+            return new WP_REST_Response([
+                'ok' => false,
+                'error_code' => 'SAFE_MODE',
+                'error_message' => 'Guardian safe-mode is on — backup import refused. Clear safe-mode first.',
+            ], 423);
+        }
+
+        $dir = Engine::backupsDir();
+        if ($dir === '') {
+            return new WP_REST_Response(['ok' => false, 'error_code' => 'DIR_UNWRITABLE'], 500);
+        }
+
+        $uploadId = (string) $req->get_param('upload_id');
+        $offset = (int) $req->get_param('offset');
+        $raw = base64_decode((string) $req->get_param('chunk'), true);
+        if ($raw === false) {
+            return new WP_REST_Response(['ok' => false, 'error_code' => 'INVALID_BASE64'], 422);
+        }
+
+        $appended = Transfer::appendChunk($dir, $uploadId, $offset, $raw);
+        if (empty($appended['ok'])) {
+            return new WP_REST_Response([
+                'ok' => false,
+                'error_code' => $appended['error'] ?? 'STAGE_FAILED',
+                'expected_offset' => $appended['expected_offset'] ?? null,
+            ], 409);
+        }
+
+        if (!(bool) $req->get_param('final')) {
+            return new WP_REST_Response(['ok' => true, 'done' => false, 'received' => $appended['received']], 200);
+        }
+
+        // Final chunk — validate + register the reassembled archive.
+        $stage = Transfer::stagePath($dir, $uploadId);
+        $filename = (string) ($req->get_param('filename') ?: 'imported-backup.zip');
+        $result = Engine::importUpload($stage, $filename);
+        Transfer::discard($dir, $uploadId);
+
+        Log::append([
+            'endpoint' => 'backup-import',
+            'user' => (string) wp_get_current_user()->user_login,
+            'site_url' => (string) get_option('siteurl'),
+            'result' => !empty($result['ok']) ? 'success' : 'rejected',
+            'error' => $result['error'] ?? null,
+        ]);
+
+        if (empty($result['ok'])) {
+            return new WP_REST_Response([
+                'ok' => false,
+                'done' => true,
+                'error_code' => $result['error'] ?? 'IMPORT_FAILED',
+                'error_message' => $result['message'] ?? null,
+            ], 422);
+        }
+        return new WP_REST_Response(['ok' => true, 'done' => true] + $result, 200);
     }
 
     private static function resolveZip(string $id): ?string
