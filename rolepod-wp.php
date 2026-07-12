@@ -88,6 +88,9 @@ add_action('rest_api_init', static function (): void {
     \Rolepod\Wp\Endpoint\MediaOptimize::register();
     // v2.17 — throttled site backup (create + inspect; restore is a later phase).
     \Rolepod\Wp\Endpoint\Backup::register();
+    // v2.23 — import media from base64 / https url / wp-content local path
+    // (bounded per source; reversible media ledger row).
+    \Rolepod\Wp\Endpoint\MediaImport::register();
 });
 
 // v2.13 — register the skills CPT on init (register_post_type must run on `init`,

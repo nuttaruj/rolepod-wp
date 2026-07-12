@@ -58,6 +58,9 @@ final class Toggler
             case 'theme':
                 return self::toggleTheme($row, $newApplied);
 
+            case 'media':
+                return self::toggleMedia($row, $newApplied);
+
             default:
                 return [
                     'ok' => false,
@@ -183,5 +186,35 @@ final class Toggler
         }
         switch_theme($slug);
         return ['ok' => true, 'category' => 'theme', 'action' => $newApplied ? 'reapplied' : 'reverted', 'detail' => $slug];
+    }
+
+    /**
+     * Media rows. Only `import` is revertible here: disabling deletes the
+     * attachment that was created. Re-enabling cannot re-create it (the file
+     * is gone), and other media subcategories (e.g. `optimize`, which restores
+     * from its own on-disk backup outside this dispatcher) are left untouched.
+     */
+    private static function toggleMedia(array $row, bool $newApplied): array
+    {
+        $subcategory = (string) ($row['subcategory'] ?? '');
+        if ($subcategory !== 'import') {
+            return ['ok' => false, 'category' => 'media', 'action' => 'noop', 'detail' => "no dispatcher for media subcategory '{$subcategory}'"];
+        }
+
+        $attachId = (int) ($row['after_state']['attachment_id'] ?? 0);
+        if ($attachId <= 0) {
+            return ['ok' => false, 'category' => 'media', 'action' => 'skip', 'detail' => 'attachment_id missing in snapshot'];
+        }
+
+        if ($newApplied) {
+            // 0 → 1: the attachment was already deleted; nothing to re-create.
+            return ['ok' => false, 'category' => 'media', 'action' => 'noop', 'detail' => "cannot re-create deleted attachment {$attachId}; re-import via wp_media_upload"];
+        }
+
+        $deleted = wp_delete_attachment($attachId, true);
+        if (!$deleted) {
+            return ['ok' => false, 'category' => 'media', 'action' => 'delete_failed', 'detail' => "attachment {$attachId}"];
+        }
+        return ['ok' => true, 'category' => 'media', 'action' => 'reverted', 'detail' => "deleted attachment {$attachId}"];
     }
 }
