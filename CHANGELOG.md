@@ -4,6 +4,65 @@ All notable changes to this plugin are documented here. Follows [Keep a Changelo
 
 Plugin versions track `@rolepod/wplab` MCP family. See `MIN_COMPANION_VERSION` in `rolepod-wplab/src/companion/constants.ts` for the floor the MCP client expects.
 
+## [2.23.0] — 2026-07-12 — Safe-mode enforcement, media import, offsite backup transfer
+
+Companion half of the remediation-plan M3 milestone. Every change here is
+either a fail-closed safety fix or a new capability the MCP client gates on via
+the handshake, so an older client keeps working and a newer one lights the
+feature up only when the companion advertises it.
+
+### Security
+
+- **Fail-closed safe-mode over the whole REST surface** — `rolepod_wp_safe_mode`
+  previously gated only media optimization, so `execute-php`, `fs-write`,
+  `wp-cli`, `option-set` and the Elementor writers all still ran with safe-mode
+  ON. A new `rest_pre_dispatch` gate (`Security\SafeModeGuard`) now refuses every
+  mutating request in the `wplab/v1` namespace when safe-mode is on, except an
+  explicit read/diagnostic allowlist — so a brand-new write endpoint is blocked
+  by default rather than slipping through. Guardian recovery routes live in a
+  separate namespace and are unaffected, so recovery still works. (WS15-T5)
+- **Catastrophic wp-cli commands blocked at the companion** — `db reset`,
+  `db drop`, `db clean`, and `core multisite-convert` are refused with 403
+  `CATASTROPHIC_BLOCKED` before the production check, with no override, mirroring
+  the Node CATASTROPHIC set. The bridge no longer relies on the client being the
+  only thing standing between a token and `db drop`. `eval` is intentionally
+  still allowed (the companion runs it for internal ops). (WS1-T4)
+
+### Added
+
+- **Media import** — `POST /media-import` creates a real media-library
+  attachment (generated sub-sizes + alt text) from a base64 payload, an https
+  URL, or a server-local path under wp-content. Each source is bounded before it
+  touches the library: base64 is size-capped, url is https-only + run through
+  `wp_http_validate_url` (blocks loopback/private hosts → SSRF) + size-capped,
+  local paths must resolve inside wp-content. `wp_handle_sideload` enforces the
+  site's allowed-mime map. The import is a reversible `media/import` ledger row
+  (revert deletes the attachment). Refused in safe-mode. Advertised as the
+  `media_import` handshake capability. (WS2-T2)
+- **Reversible media ledger dispatch** — `Audit\Toggler` gained a `media`
+  dispatcher (there was none, so media rows silently no-op'd on toggle). A
+  `media/import` row now deletes its attachment when disabled; re-enabling is an
+  honest no-op (the file is gone).
+- **Offsite backup transfer** — `POST /backup-download` streams an existing
+  archive out in base64 chunks (byte-identical reassembly; read-only, so it stays
+  available in safe-mode for recovery), and `POST /backup-import` reassembles a
+  pushed archive chunk-by-chunk. Each import chunk must append at the staging
+  file's exact current end (`OFFSET_MISMATCH` otherwise), so a dropped or
+  out-of-order chunk can never silently corrupt the zip; the final chunk is
+  handed to the existing import validator (`NO_MANIFEST` / `BAD_FORMAT` still
+  decide whether it is a real Rolepod backup). Import is refused in safe-mode.
+  (WS13-T3/T4)
+
+### Notes
+
+- The adapter-bridge work (WS14 — Pods / MetaBox / JetEngine / ACF read/write
+  through the companion, `adapter_bridge` capability) is **deferred to a later
+  release**: it requires those third-party plugins installed on a live site to
+  verify each plugin's read/write API, and shipping guessed API calls would
+  reintroduce the wrong-data class of bug this remediation is closing. Because the
+  MCP client gates on the `adapter_bridge` capability, its absence in 2.23.0 is a
+  clean fall-through, not a break.
+
 ## [2.22.1] — 2026-06-06 — Scheduled backups + retention (+ review fixes)
 
 ### Added
