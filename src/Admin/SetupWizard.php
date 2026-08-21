@@ -45,8 +45,21 @@ final class SetupWizard
         if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $next = self::handlePost($path);
             if ($next !== null) {
-                wp_safe_redirect(Menu::url(Menu::SLUG_SETUP) . '&step=' . (int) $next['step'] . '&path=' . urlencode($next['path']));
-                exit;
+                $step = (int) $next['step'];
+                $path = $next['path'];
+
+                // Post/Redirect/Get is preferred so a refresh does not
+                // resubmit. But a redirect is impossible once anything has
+                // already flushed output (a stray newline after a closing PHP
+                // tag in any other active plugin is enough), and
+                // wp_safe_redirect() also returns false when a `wp_redirect`
+                // filter cancels it. Both cases used to reach the `exit` below
+                // anyway and serve a blank page, so the wizard looked dead when
+                // it was only PRG that was unavailable. Fall through and render
+                // the destination step inline instead.
+                if (!headers_sent() && wp_safe_redirect(Menu::url(Menu::SLUG_SETUP) . '&step=' . $step . '&path=' . urlencode($path))) {
+                    exit;
+                }
             }
         }
 

@@ -53,6 +53,18 @@ feature up only when the companion advertises it.
   decide whether it is a real Rolepod backup). Import is refused in safe-mode.
   (WS13-T3/T4)
 
+### Fixed
+
+- **Setup wizard served a blank page after every step change** — `SetupWizard::render()`
+  called `wp_safe_redirect()` and then `exit` unconditionally when handling a POST.
+  A redirect cannot be sent once anything has already flushed output (a stray newline
+  after a closing PHP tag in any other active plugin is enough), and `wp_safe_redirect()`
+  also returns false when a `wp_redirect` filter cancels it — in both cases the `exit`
+  still ran and the browser got an empty response, so Quick start and Manual setup both
+  looked dead while the same step opened fine by GET. The wizard now falls through and
+  renders the destination step inline whenever Post/Redirect/Get is unavailable.
+  Reproduced on a WP 6.3 site running WPBakery + Slider Revolution + WPML.
+
 ### Notes
 
 - The adapter-bridge work (WS14 — Pods / MetaBox / JetEngine / ACF read/write
