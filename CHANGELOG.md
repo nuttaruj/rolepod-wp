@@ -4,7 +4,7 @@ All notable changes to this plugin are documented here. Follows [Keep a Changelo
 
 Plugin versions track `@rolepod/wplab` MCP family. See `MIN_COMPANION_VERSION` in `rolepod-wplab/src/companion/constants.ts` for the floor the MCP client expects.
 
-## [2.23.0] — 2026-07-12 — Safe-mode enforcement, media import, offsite backup transfer
+## [2.23.0] — 2026-08-21 — Safe-mode enforcement, media import, offsite backup transfer, wizard PRG fix
 
 Companion half of the remediation-plan M3 milestone. Every change here is
 either a fail-closed safety fix or a new capability the MCP client gates on via
