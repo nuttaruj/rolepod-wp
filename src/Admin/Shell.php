@@ -33,7 +33,7 @@ final class Shell
         // — which is the one user-controlled gate over the power surface.
         $config = Config::all();
         $fullAccess = (bool) ($config['execute_php_enabled'] ?? false);
-        $statusLabel = $fullAccess ? 'Full access' : 'Guarded';
+        $statusLabel = $fullAccess ? 'AI Full Control' : 'Guarded';
         $statusClass = $fullAccess ? '' : 'is-off';
 
         $tabs = [

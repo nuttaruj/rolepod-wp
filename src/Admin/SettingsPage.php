@@ -113,9 +113,9 @@ final class SettingsPage
                             <div class="rp-toggle-row <?php echo $executePhpEnabled ? 'is-danger' : ''; ?>">
                                 <div class="rp-toggle-icon"><?php echo self::iconCode(); ?></div>
                                 <div class="rp-toggle-body">
-                                    <strong>Full access <span class="rp-badge rp-badge-danger" style="margin-left:6px;">Use with care on live sites</span></strong>
+                                    <strong>AI Full Control <span class="rp-badge rp-badge-danger" style="margin-left:6px;">Use with care on live sites</span></strong>
                                     <div class="rp-desc">
-                                        ON &mdash; your AI CLI gets the whole power surface: <code>POST /execute-php</code>, file writes, destructive wp-cli commands, Elementor structural edits, secret-bearing introspection. OFF &mdash; guarded: this site serves the safe subset (content edits, reads, backups) and refuses the rest server-side. Every call still needs a valid session token and an AST-screen-clean payload. The companion never guesses whether this site is production &mdash; this switch is that decision, and it is yours. <strong>Recommended: OFF for live sites. ON for dev/staging, or when you accept the risk.</strong>
+                                        ON &mdash; the AI has <strong>full control</strong> of this site: <code>POST /execute-php</code>, file writes, destructive wp-cli commands, Elementor structural edits, secret-bearing introspection. OFF &mdash; guarded: this site serves the safe subset (content edits, reads, backups) and refuses the rest server-side. Every call still needs a valid session token and an AST-screen-clean payload. The companion never guesses whether this site is production &mdash; this switch is that decision, and it is yours. <strong>Recommended: OFF for live sites. ON for dev/staging, or when you accept the risk.</strong>
                                     </div>
                                 </div>
                                 <label class="rp-toggle">
