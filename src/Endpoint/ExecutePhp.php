@@ -7,7 +7,6 @@ use Rolepod\Wp\Audit\ChangeRecorder;
 use Rolepod\Wp\Audit\Log;
 use Rolepod\Wp\Config;
 use Rolepod\Wp\Security\AstScreen;
-use Rolepod\Wp\Security\ProductionGuard;
 use Rolepod\Wp\Security\SessionToken;
 use WP_REST_Request;
 use WP_REST_Response;
@@ -79,25 +78,6 @@ final class ExecutePhp
         $timeoutMs = max(100, min(30_000, (int) $req->get_param('timeout_ms')));
         $userId = get_current_user_id();
         $siteurl = (string) get_option('siteurl');
-
-        // Production block — unconditional
-        $matched = ProductionGuard::matchedPattern();
-        if ($matched !== null) {
-            $auditId = Log::append([
-                'endpoint' => 'execute-php',
-                'user' => (string) wp_get_current_user()->user_login,
-                'site_url' => $siteurl,
-                'result' => 'rejected',
-                'error' => "PRODUCTION_BLOCKED (matched={$matched})",
-                'payload_sha256' => hash('sha256', $payload),
-            ]);
-            return new WP_REST_Response([
-                'ok' => false,
-                'error_code' => 'PRODUCTION_BLOCKED',
-                'error_message' => "siteurl matches production pattern: {$matched}",
-                'audit_id' => $auditId,
-            ], 403);
-        }
 
         // Session token check
         if (!SessionToken::verify($token, $userId)) {

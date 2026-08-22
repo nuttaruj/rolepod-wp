@@ -6,7 +6,6 @@ namespace Rolepod\Wp\Endpoint;
 use Rolepod\Wp\Audit\Log;
 use Rolepod\Wp\Config;
 use Rolepod\Wp\Security\AstScreen;
-use Rolepod\Wp\Security\ProductionGuard;
 use Rolepod\Wp\Security\SessionToken;
 use WP_REST_Request;
 use WP_REST_Response;
@@ -61,9 +60,6 @@ final class PhpSession
         $token = (string) $req->get_param('session_token');
         if (!SessionToken::verify($token, $userId)) {
             return new WP_REST_Response(['ok' => false, 'error_code' => 'INVALID_OR_EXPIRED_TOKEN'], 401);
-        }
-        if (ProductionGuard::matchedPattern() !== null) {
-            return new WP_REST_Response(['ok' => false, 'error_code' => 'PRODUCTION_BLOCKED'], 403);
         }
         $payload = (string) $req->get_param('payload');
         $screen = AstScreen::screen($payload);

@@ -10,7 +10,6 @@ namespace Rolepod\Wp;
  *   [
  *     'endpoints_enabled'   => bool,    // master toggle (Settings page)
  *     'execute_php_enabled' => bool,    // v0.1 stays false; v0.2 default true
- *     'production_hosts'    => string[], // glob patterns matched against siteurl
  *   ]
  */
 final class Config
@@ -42,14 +41,16 @@ final class Config
         return (bool) (self::all()['execute_php_enabled'] ?? false);
     }
 
-    /** @return string[] */
-    public static function productionHosts(): array
+    /**
+     * The full-access toggle (stored as `execute_php_enabled` for wire and
+     * option back-compat) is the access mode for the whole power surface:
+     * ON = full access, OFF = guarded — the safe subset recommended for live
+     * sites. One switch, one owner decision. The companion never tries to
+     * guess whether the site is production; that call belongs to the user.
+     */
+    public static function fullAccess(): bool
     {
-        $hosts = self::all()['production_hosts'] ?? [];
-        if (!is_array($hosts)) {
-            return [];
-        }
-        return array_values(array_filter(array_map('strval', $hosts), 'strlen'));
+        return self::executePhpEnabled();
     }
 
     /**

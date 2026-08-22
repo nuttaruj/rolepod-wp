@@ -4,7 +4,6 @@ declare(strict_types=1);
 namespace Rolepod\Wp\Endpoint;
 
 use Rolepod\Wp\Config;
-use Rolepod\Wp\Security\ProductionGuard;
 use WP_REST_Request;
 use WP_REST_Response;
 use WP_Error;
@@ -67,14 +66,13 @@ final class Introspect
     {
         $scope = (string) $req->get_param('scope');
         $includeValues = (bool) $req->get_param('include_values');
-        $isProd = ProductionGuard::isProduction();
-
-        // Production guard for value-leaking scopes
-        if ($isProd && $includeValues && in_array($scope, ['transients', 'options_full'], true)) {
+        // Values in these scopes can carry secrets (API keys in options,
+        // tokens in transients) — guarded mode returns keys only.
+        if (!Config::fullAccess() && $includeValues && in_array($scope, ['transients', 'options_full'], true)) {
             return new WP_REST_Response([
                 'ok' => false,
-                'error_code' => 'PRODUCTION_BLOCKED',
-                'error_message' => 'include_values refused on production-matched target for ' . $scope,
+                'error_code' => 'FULL_ACCESS_REQUIRED',
+                'error_message' => 'include_values requires full access for ' . $scope,
             ], 403);
         }
 

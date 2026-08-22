@@ -4,7 +4,6 @@ declare(strict_types=1);
 namespace Rolepod\Wp\Endpoint;
 
 use Rolepod\Wp\Config;
-use Rolepod\Wp\Security\ProductionGuard;
 use Rolepod\Wp\Security\SessionToken;
 use WP_REST_Request;
 use WP_REST_Response;
@@ -57,22 +56,19 @@ final class Handshake
         $token = SessionToken::issue($userId);
 
         $capabilities = ['introspect_hooks', 'introspect_transients', 'introspect_options_full', 'skills', 'media_import'];
-        if (Config::executePhpEnabled() && !ProductionGuard::isProduction()) {
+        if (Config::fullAccess()) {
             $capabilities[] = 'execute_php';
         }
         if (\Rolepod\Wp\Abilities\Bridge::isAvailable()) {
             $capabilities[] = 'abilities_api';
         }
 
-        $matchedPattern = ProductionGuard::matchedPattern();
-
         return new WP_REST_Response([
             'companion_version' => ROLEPOD_WP_VERSION,
             'wp_version' => get_bloginfo('version'),
             'php_version' => PHP_VERSION,
             'siteurl' => (string) get_option('siteurl'),
-            'is_production' => $matchedPattern !== null,
-            'production_pattern_matched' => $matchedPattern,
+            'access_mode' => Config::fullAccess() ? 'full' : 'guarded',
             'capabilities' => $capabilities,
             'abilities_api' => [
                 'available'  => \Rolepod\Wp\Abilities\Bridge::isAvailable(),

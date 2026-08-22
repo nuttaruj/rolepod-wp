@@ -6,7 +6,6 @@ namespace Rolepod\Wp\Endpoint;
 use Rolepod\Wp\Audit\Log;
 use Rolepod\Wp\Config;
 use Rolepod\Wp\Security\PairToken;
-use Rolepod\Wp\Security\ProductionGuard;
 use WP_Application_Passwords;
 use WP_Error;
 use WP_REST_Request;
@@ -180,7 +179,10 @@ final class Pair
         }
 
         $capabilities = ['introspect_hooks', 'introspect_transients', 'introspect_options_full', 'skills'];
-        if (Config::executePhpEnabled() && !ProductionGuard::isProduction()) {
+        // One switch, one owner decision: the full-access toggle alone
+        // decides whether execute-php (and the rest of the power surface)
+        // is available. The companion does not guess production-ness.
+        if (Config::fullAccess()) {
             $capabilities[] = 'execute_php';
         }
 
@@ -198,7 +200,7 @@ final class Pair
             'capabilities' => $capabilities,
             'companion_version' => ROLEPOD_WP_VERSION,
             'siteurl' => (string) get_option('siteurl'),
-            'is_production' => ProductionGuard::isProduction(),
+            'access_mode' => Config::fullAccess() ? 'full' : 'guarded',
         ], 200);
     }
 

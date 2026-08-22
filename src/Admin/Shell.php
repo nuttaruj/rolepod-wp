@@ -29,13 +29,12 @@ final class Shell
     public static function open(string $activeSlug, string $pageLabel, ?string $subtitle = null): void
     {
         // v2.8.9: the master endpoints toggle is gone (plugin activation =
-        // consent). The status dot now reflects execute-php state — the
-        // only remaining user-controlled gate, and the one that matters
-        // for "is this a live customer site or dev/staging".
+        // consent). The status dot reflects the access mode — full vs guarded
+        // — which is the one user-controlled gate over the power surface.
         $config = Config::all();
-        $executePhpEnabled = (bool) ($config['execute_php_enabled'] ?? false);
-        $statusLabel = $executePhpEnabled ? 'execute-php ON' : 'execute-php OFF';
-        $statusClass = $executePhpEnabled ? '' : 'is-off';
+        $fullAccess = (bool) ($config['execute_php_enabled'] ?? false);
+        $statusLabel = $fullAccess ? 'Full access' : 'Guarded';
+        $statusClass = $fullAccess ? '' : 'is-off';
 
         $tabs = [
             ['slug' => Menu::SLUG_SETUP,    'label' => 'Setup',    'icon' => self::iconSparkle()],

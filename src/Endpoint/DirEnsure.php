@@ -4,7 +4,6 @@ declare(strict_types=1);
 namespace Rolepod\Wp\Endpoint;
 
 use Rolepod\Wp\Config;
-use Rolepod\Wp\Security\ProductionGuard;
 use Rolepod\Wp\Security\SessionToken;
 use WP_Error;
 use WP_REST_Request;

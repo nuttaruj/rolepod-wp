@@ -5,7 +5,6 @@ namespace Rolepod\Wp\Endpoint;
 
 use Rolepod\Wp\Audit\Log;
 use Rolepod\Wp\Config;
-use Rolepod\Wp\Security\ProductionGuard;
 use Rolepod\Wp\Security\SessionToken;
 use WP_REST_Request;
 use WP_REST_Response;
@@ -123,20 +122,21 @@ final class WpCli
             ], 403);
         }
 
-        // Production guard for destructive ops — basic version. Real allow-list
-        // lives on the Node MCP side (W-005); companion just refuses on prod.
-        $matched = ProductionGuard::matchedPattern();
-        if ($matched !== null && self::looksDestructive($args)) {
+        // Destructive ops need full access; reads pass in guarded mode. The
+        // real allow-list lives on the Node MCP side (W-005), and catastrophic
+        // commands are refused unconditionally regardless of mode.
+        if (!Config::fullAccess() && self::looksDestructive($args)) {
             $auditId = Log::append([
                 'endpoint' => 'wp-cli',
                 'user' => (string) wp_get_current_user()->user_login,
                 'site_url' => (string) get_option('siteurl'),
                 'result' => 'rejected',
-                'error' => "PRODUCTION_BLOCKED (matched={$matched}); args=" . implode(' ', $args),
+                'error' => 'FULL_ACCESS_REQUIRED; args=' . implode(' ', $args),
             ]);
             return new WP_REST_Response([
                 'ok' => false,
-                'error_code' => 'PRODUCTION_BLOCKED',
+                'error_code' => 'FULL_ACCESS_REQUIRED',
+                'error_message' => 'Guarded mode: enable Full access in wp-admin -> Rolepod WP -> Settings to use this endpoint.',
                 'audit_id' => $auditId,
             ], 403);
         }

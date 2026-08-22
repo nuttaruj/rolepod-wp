@@ -11,9 +11,7 @@ use Rolepod\Wp\Guardian;
 /**
  * Settings page — top-level submenu "Settings".
  *
- * - Master toggle (endpoints_enabled)
- * - execute-php toggle
- * - Production hostnames
+ * - Full-access toggle (stored as execute_php_enabled) — the one owner decision
  * - Recovery guardian status + actions
  * - Audit log tail (last 50 entries) as a timeline
  */
@@ -115,9 +113,9 @@ final class SettingsPage
                             <div class="rp-toggle-row <?php echo $executePhpEnabled ? 'is-danger' : ''; ?>">
                                 <div class="rp-toggle-icon"><?php echo self::iconCode(); ?></div>
                                 <div class="rp-toggle-body">
-                                    <strong>Enable <code>POST /execute-php</code> <span class="rp-badge rp-badge-danger" style="margin-left:6px;">Dangerous for production</span></strong>
+                                    <strong>Full access <span class="rp-badge rp-badge-danger" style="margin-left:6px;">Use with care on live sites</span></strong>
                                     <div class="rp-desc">
-                                        Lets the MCP run arbitrary PHP on this site. Even when ON, every call still needs a valid session token and an AST-screen-clean payload &mdash; but if you turn this on for a live customer site, an AI mistake can take the site down. <strong>Recommended: keep OFF on production. Turn ON only on dev/staging.</strong>
+                                        ON &mdash; your AI CLI gets the whole power surface: <code>POST /execute-php</code>, file writes, destructive wp-cli commands, Elementor structural edits, secret-bearing introspection. OFF &mdash; guarded: this site serves the safe subset (content edits, reads, backups) and refuses the rest server-side. Every call still needs a valid session token and an AST-screen-clean payload. The companion never guesses whether this site is production &mdash; this switch is that decision, and it is yours. <strong>Recommended: OFF for live sites. ON for dev/staging, or when you accept the risk.</strong>
                                     </div>
                                 </div>
                                 <label class="rp-toggle">
@@ -439,11 +437,12 @@ final class SettingsPage
 
     private static function handleSave(): void
     {
-        // v2.8.9: only execute-php is settable from the UI now. Plugin
-        // activation = consent for read + scoped-write endpoints (master
-        // toggle removed). `endpoints_enabled` and `production_hosts`
-        // keys remain in the option array for back-compat with any
-        // power-user / WP-CLI workflow that still reads them.
+        // The full-access toggle is the only setting here. Stored as
+        // `execute_php_enabled` for option back-compat. Plugin activation =
+        // consent for the safe subset; this switch opens the full power
+        // surface (execute-php, fs writes, destructive wp-cli, Elementor
+        // structural edits). Stale keys from older versions are left in the
+        // option array untouched.
         Config::update([
             'execute_php_enabled' => isset($_POST['execute_php_enabled']),
         ]);

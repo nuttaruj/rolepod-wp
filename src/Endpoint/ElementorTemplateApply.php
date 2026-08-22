@@ -5,7 +5,6 @@ namespace Rolepod\Wp\Endpoint;
 
 use Rolepod\Wp\Audit\Log;
 use Rolepod\Wp\Config;
-use Rolepod\Wp\Security\ProductionGuard;
 use Rolepod\Wp\Security\SessionToken;
 use WP_Error;
 use WP_REST_Request;
@@ -72,16 +71,21 @@ final class ElementorTemplateApply
         if (!SessionToken::verify($token, $userId)) {
             return new WP_REST_Response(['ok' => false, 'error_code' => 'INVALID_OR_EXPIRED_TOKEN'], 401);
         }
-        $matched = ProductionGuard::matchedPattern();
-        if ($matched !== null) {
+        // Guarded mode — the owner has not enabled full access.
+        if (!Config::fullAccess()) {
             $auditId = Log::append([
                 'endpoint' => 'elementor/template-apply',
                 'user' => (string) wp_get_current_user()->user_login,
                 'site_url' => (string) get_option('siteurl'),
                 'result' => 'rejected',
-                'error' => "PRODUCTION_BLOCKED (matched={$matched})",
+                'error' => 'FULL_ACCESS_REQUIRED',
             ]);
-            return new WP_REST_Response(['ok' => false, 'error_code' => 'PRODUCTION_BLOCKED', 'audit_id' => $auditId], 403);
+            return new WP_REST_Response([
+                'ok' => false,
+                'error_code' => 'FULL_ACCESS_REQUIRED',
+                'error_message' => 'Guarded mode: enable Full access in wp-admin -> Rolepod WP -> Settings to use this endpoint.',
+                'audit_id' => $auditId,
+            ], 403);
         }
 
         $postId = (int) $req->get_param('target_post_id');

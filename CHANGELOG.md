@@ -4,6 +4,42 @@ All notable changes to this plugin are documented here. Follows [Keep a Changelo
 
 Plugin versions track `@rolepod/wplab` MCP family. See `MIN_COMPANION_VERSION` in `rolepod-wplab/src/companion/constants.ts` for the floor the MCP client expects.
 
+## [2.24.0] — 2026-08-22 — One switch: full access vs guarded
+
+The companion no longer tries to decide whether the site is production — that
+call belongs to the site owner, and the existing execute-php toggle is where
+they make it. ON = **full access**. OFF = **guarded**, the safe subset
+recommended for live sites. `ProductionGuard` and the `production_hosts`
+option are gone.
+
+### Changed — BREAKING (wire + behavior)
+
+- **The toggle now gates the whole power surface server-side, on every site.**
+  `fs-write`, `fs-write-batch`, `fs-copy`, `elementor/widget-attribute`,
+  `elementor/template-apply`, destructive `wp-cli` commands, and
+  `include_values` on secret-bearing introspect scopes (`transients`,
+  `options_full`) return `403 FULL_ACCESS_REQUIRED` while the toggle is OFF.
+  Previously these were open unless the siteurl matched a configured
+  production pattern — which nobody could configure, since the field left the
+  UI in v2.8.9. Guarded mode is now real and server-enforced instead of
+  depending on the client honouring a hint. Reads, content edits (WP core
+  REST), backups and non-destructive wp-cli are untouched.
+- **The toggle no longer fights the owner.** `execute_php` capability used to
+  be withheld on production-matched sites even with the toggle ON — refusing
+  exactly the people who had deliberately opted in, while `file_put_contents()`
+  through the same endpoint's AST screen stayed possible anyway. The toggle is
+  now the entire gate.
+- **`/handshake` and `/pair/redeem` report `access_mode: 'full' | 'guarded'`**
+  and no longer send `is_production` / `production_pattern_matched`. A missing
+  `is_production` reads as `false` on older MCP clients, which matches the new
+  semantics (no production blocking).
+
+### Removed
+
+- `Security\ProductionGuard`, `Config::productionHosts()`, and the
+  `production_hosts` key in the default config seed. Stale keys in existing
+  installs are ignored, not migrated.
+
 ## [2.23.0] — 2026-08-21 — Safe-mode enforcement, media import, offsite backup transfer, wizard PRG fix
 
 Companion half of the remediation-plan M3 milestone. Every change here is
