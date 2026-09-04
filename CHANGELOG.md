@@ -4,6 +4,23 @@ All notable changes to this plugin are documented here. Follows [Keep a Changelo
 
 Plugin versions track `@rolepod/wplab` MCP family. See `MIN_COMPANION_VERSION` in `rolepod-wplab/src/companion/constants.ts` for the floor the MCP client expects.
 
+## [2.24.2] — 2026-09-04 — Say so when a scanner empties an endpoint
+
+2.24.1 made a missing endpoint class survivable, which also made it silent.
+A companion can now sit half-alive with nobody the wiser.
+
+### Added
+- Admin notice (`Admin\\BrokenEndpointsNotice`) shown to administrators on
+  Dashboard, Plugins and the Rolepod screens whenever
+  `rolepod_wp_broken_endpoints` is non-empty. It names each class, explains
+  that a host malware scanner is the likely cause, and prints the
+  WordPress-root-relative path to put in an ignore list — with the exact menu
+  path for Imunify360 and Wordfence — because without that entry the next scan
+  empties the file again.
+- README section covering the same recovery, and stating plainly that leaving
+  the file emptied is fine on a site that never turns on AI Full Control.
+- `tests/Unit/broken-endpoints-notice-test.php`.
+
 ## [2.24.1] — 2026-09-04 — One dead endpoint no longer takes the whole REST API with it
 
 Found on a live site: a host malware scanner truncated

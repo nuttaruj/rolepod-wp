@@ -5,7 +5,7 @@
  * Description:       The WordPress arm of the Rolepod ecosystem (https://github.com/nuttaruj/rolepod). Exposes guarded REST endpoints so AI coding agents (Claude Code / Cursor / Codex / Gemini) — driven by the rolepod-wplab MCP server — can run runtime introspection, the one-click pair wizard, and (with explicit opt-in) execute-php on this WordPress install. Endpoints are OFF by default; enable per-feature in Settings → Rolepod for WordPress. v2.6 adds a mu-plugin recovery guardian that survives main-plugin parse/fatal errors.
  * Author:            nuttaruj
  * Author URI:        https://github.com/nuttaruj
- * Version:           2.24.1
+ * Version:           2.24.2
  * Requires at least: 6.0
  * Requires PHP:      7.4
  * License:           MIT
@@ -21,7 +21,7 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-define('ROLEPOD_WP_VERSION', '2.24.1');
+define('ROLEPOD_WP_VERSION', '2.24.2');
 define('ROLEPOD_WP_FILE', __FILE__);
 define('ROLEPOD_WP_DIR', plugin_dir_path(__FILE__));
 
@@ -54,6 +54,15 @@ add_action('rest_api_init', static function (): void {
 
     $failed = \Rolepod\Wp\Bootstrap\EndpointRegistrar::registerAll();
     \Rolepod\Wp\Bootstrap\EndpointRegistrar::recordFailures($failed);
+});
+
+// v2.24.2 — tell an administrator when an endpoint could not register. The
+// registrar keeps the site up, so without this the companion would sit
+// quietly half-alive. Guarded like the registrar itself.
+add_action('admin_init', static function (): void {
+    if (class_exists(\Rolepod\Wp\Admin\BrokenEndpointsNotice::class)) {
+        \Rolepod\Wp\Admin\BrokenEndpointsNotice::register();
+    }
 });
 
 // v2.13 — register the skills CPT on init (register_post_type must run on `init`,

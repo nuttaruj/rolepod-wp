@@ -102,6 +102,34 @@ Pair flow adds:
 
 Report security issues privately to `nuttaruj@gmail.com` with 90-day disclosure (see SECURITY.md once it lands at v0.5).
 
+## If your host's malware scanner empties a file
+
+`src/Endpoint/ExecutePhp.php` exists to run PHP you send it. To a signature
+scanner that is a backdoor, and the detection is fair — abandoned
+eval-a-string plugins have been mass-abused in the wild. Imunify360 in
+particular *trims* a file it cannot clean instead of deleting it, so the file
+stays on disk at zero bytes.
+
+Since 2.24.1 that costs you the affected endpoint and nothing else: the
+registrar skips a class it cannot load, the rest of the companion runs, and
+your site's REST API is untouched. Since 2.24.2 an admin notice tells you it
+happened, names the class, and prints the path to ignore-list. `GET /handshake`
+reports the same thing as `broken_endpoints` for the MCP client.
+
+To restore it:
+
+1. Add the path to your scanner's ignore list, or the next scan re-empties it:
+   - **Imunify360** → Ignore List → *Add New File or Directory*
+   - **Wordfence** → All Options → Scan Options → *Exclude files from scan that
+     match these wildcard patterns*
+   ```
+   wp-content/plugins/rolepod-wp/src/Endpoint/ExecutePhp.php
+   ```
+2. Reinstall the plugin to bring the file back.
+
+If you never turn on AI Full Control, leaving it emptied is a perfectly valid
+choice — execute-php is off in guarded mode anyway, and nothing else changes.
+
 ## Versioning
 
 Plugin version tracks the MCP (`@rolepod/wplab`) family it pairs with. `MIN_COMPANION_VERSION` on the MCP side (see `rolepod-wplab/src/companion/constants.ts`) is the version floor that MCP build expects.
