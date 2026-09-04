@@ -30,6 +30,13 @@ final class EndpointRegistrar
     public const OPTION = 'rolepod_wp_broken_endpoints';
 
     /**
+     * Reason recorded when the class simply would not load. Named so that
+     * callers can tell "the file is gone" (verifiable on disk) apart from
+     * "register() threw" (not verifiable), instead of matching prose.
+     */
+    public const REASON_NOT_LOADED = 'class not found — file missing or empty';
+
+    /**
      * Ordered. SafeModeGuard arms before any endpoint so a mutating request is
      * refused while safe-mode is on.
      *
@@ -96,7 +103,7 @@ final class EndpointRegistrar
         foreach ($classes ?? self::classes() as $class) {
             try {
                 if (!class_exists($class)) {
-                    $failed[$class] = 'class not found — file missing or empty';
+                    $failed[$class] = self::REASON_NOT_LOADED;
                     continue;
                 }
                 $class::register();

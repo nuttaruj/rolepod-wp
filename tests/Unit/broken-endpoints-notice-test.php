@@ -88,6 +88,19 @@ if (!function_exists('get_current_screen')) {
     }
 }
 
+// A plugin dir with no endpoint files: every recorded failure is real, which
+// is the state the original assertions were written against.
+$GLOBALS['__fixture'] = sys_get_temp_dir() . '/rolepod-notice-test-' . bin2hex(random_bytes(4));
+mkdir($GLOBALS['__fixture'] . '/src/Endpoint', 0777, true);
+
+if (!defined('ROLEPOD_WP_DIR')) {
+    define('ROLEPOD_WP_DIR', $GLOBALS['__fixture'] . '/');
+}
+if (!defined('ROLEPOD_WP_VERSION')) {
+    define('ROLEPOD_WP_VERSION', '2.25.1');
+}
+
+require __DIR__ . '/../../src/Repair.php';
 require __DIR__ . '/../../src/Admin/Menu.php';
 require __DIR__ . '/../../src/Bootstrap/EndpointRegistrar.php';
 require __DIR__ . '/../../src/Admin/BrokenEndpointsNotice.php';
@@ -182,6 +195,29 @@ check('shown on the Rolepod settings screen', strpos(capture(), 'ExecutePhp') !=
 $GLOBALS['__screen_id'] = 'toplevel_page_rolepod-wp';
 check('shown on the Rolepod top-level screen', strpos(capture(), 'ExecutePhp') !== false);
 
+// ------------------------------- 3c. a file that is back on disk is not warned --
+
+echo "the notice does not warn about damage that is already repaired\n";
+
+$GLOBALS['__screen_id'] = 'toplevel_page_rolepod-wp';
+$GLOBALS['__options'][EndpointRegistrar::OPTION] = [
+    'Rolepod\\Wp\\Endpoint\\ExecutePhp' => EndpointRegistrar::REASON_NOT_LOADED,
+];
+
+// The option still says broken; the file is back. Only a REST request rewrites
+// that option, so after a wp-admin repair this is exactly what an admin sees.
+file_put_contents($GLOBALS['__fixture'] . '/src/Endpoint/ExecutePhp.php', "<?php\nclass X {}\n");
+check('silent once the file is back', capture() === '');
+
+// A register() failure that is not a load failure cannot be checked on disk,
+// so it must still be reported even though the file is fine.
+$GLOBALS['__options'][EndpointRegistrar::OPTION] = [
+    'Rolepod\\Wp\\Endpoint\\ExecutePhp' => 'RuntimeException: boom',
+];
+check('a thrown register() is still reported', strpos(capture(), 'boom') !== false);
+
+unlink($GLOBALS['__fixture'] . '/src/Endpoint/ExecutePhp.php');
+
 // ------------------------------------------------------------ 4. escaping --
 
 echo "reasons are escaped\n";
@@ -195,6 +231,10 @@ check('no raw script tag', strpos($html, '<script>') === false);
 check('escaped form present', strpos($html, '&lt;script&gt;') !== false);
 
 // --------------------------------------------------------------------- done --
+
+@rmdir($GLOBALS['__fixture'] . '/src/Endpoint');
+@rmdir($GLOBALS['__fixture'] . '/src');
+@rmdir($GLOBALS['__fixture']);
 
 echo "\n" . ($failures === 0 ? "PASS\n" : "FAIL ({$failures})\n");
 exit($failures === 0 ? 0 : 1);

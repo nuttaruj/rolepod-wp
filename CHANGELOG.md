@@ -4,6 +4,33 @@ All notable changes to this plugin are documented here. Follows [Keep a Changelo
 
 Plugin versions track `@rolepod/wplab` MCP family. See `MIN_COMPANION_VERSION` in `rolepod-wplab/src/companion/constants.ts` for the floor the MCP client expects.
 
+## [2.25.1] — 2026-09-04 — Stop warning about damage that is already repaired
+
+Caught by installing 2.25.0 on the live site the Repair button was built for.
+The reinstall restored both emptied files, and the Repair card correctly hid
+itself — it reads the disk. The admin notice, three inches above it, still
+warned about the same two files and told the reader to go press Repair.
+
+`rolepod_wp_broken_endpoints` is only rewritten during `rest_api_init`. Any
+repair done entirely in wp-admin — the Repair button, a manual reinstall —
+leaves it stale until some REST request happens to recompute it, and the notice
+was trusting it without looking.
+
+### Fixed
+
+- `Admin\\BrokenEndpointsNotice` verifies each entry against the filesystem
+  before warning (`Repair::filterLive`). A notice that tells an admin to fix
+  what they just fixed teaches them to ignore the next one.
+- Only `REASON_NOT_LOADED` is verifiable that way, so an endpoint whose
+  `register()` threw is still reported even though its file is intact.
+
+### Changed
+
+- `EndpointRegistrar::REASON_NOT_LOADED` is now a named constant instead of a
+  prose string callers had to match.
+- `Repair::relativePath()` extracted; `damagedFiles()` and `filterLive()` share
+  it.
+
 ## [2.25.0] — 2026-09-04 — A Repair button, so a scanner hit is not a reinstall
 
 When a host malware scanner empties `src/Endpoint/ExecutePhp.php`, the way back

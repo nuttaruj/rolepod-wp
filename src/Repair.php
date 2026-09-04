@@ -65,10 +65,7 @@ final class Repair
         $out = [];
 
         foreach (array_keys(EndpointRegistrar::broken()) as $class) {
-            $relative = strpos($class, 'Rolepod\\Wp\\') === 0
-                ? substr($class, strlen('Rolepod\\Wp\\'))
-                : $class;
-            $rel = 'src/' . str_replace('\\', '/', $relative) . '.php';
+            $rel = self::relativePath($class);
             $abs = ROLEPOD_WP_DIR . $rel;
 
             if (!is_file($abs) || filesize($abs) === 0) {
@@ -77,6 +74,51 @@ final class Repair
         }
 
         return $out;
+    }
+
+    /**
+     * Drop entries the disk says are already fixed.
+     *
+     * The option is only rewritten during `rest_api_init`, so a repair done
+     * entirely through wp-admin — the Repair button, a manual reinstall —
+     * leaves it claiming damage that no longer exists until some REST request
+     * happens to recompute it. An admin then reads a warning telling them to
+     * fix what they just fixed.
+     *
+     * Only `REASON_NOT_LOADED` is verifiable this way. An endpoint whose
+     * `register()` threw is still broken even though its file is fine, so
+     * those entries are kept.
+     *
+     * @param  array<string, string> $broken
+     * @return array<string, string>
+     */
+    public static function filterLive(array $broken): array
+    {
+        $live = [];
+
+        foreach ($broken as $class => $reason) {
+            if ($reason !== EndpointRegistrar::REASON_NOT_LOADED) {
+                $live[$class] = $reason;
+                continue;
+            }
+
+            $abs = ROLEPOD_WP_DIR . self::relativePath($class);
+            if (!is_file($abs) || filesize($abs) === 0) {
+                $live[$class] = $reason;
+            }
+        }
+
+        return $live;
+    }
+
+    /** Path of a class file, relative to the plugin directory. */
+    public static function relativePath(string $class): string
+    {
+        $relative = strpos($class, 'Rolepod\\Wp\\') === 0
+            ? substr($class, strlen('Rolepod\\Wp\\'))
+            : $class;
+
+        return 'src/' . str_replace('\\', '/', $relative) . '.php';
     }
 
     public static function isNeeded(): bool

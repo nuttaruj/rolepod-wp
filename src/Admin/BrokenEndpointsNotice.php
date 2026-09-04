@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Rolepod\Wp\Admin;
 
 use Rolepod\Wp\Bootstrap\EndpointRegistrar;
+use Rolepod\Wp\Repair;
 
 /**
  * Warns an administrator when an endpoint class could not be registered.
@@ -36,7 +37,11 @@ final class BrokenEndpointsNotice
             return;
         }
 
-        $broken = EndpointRegistrar::broken();
+        // The option is only rewritten on a REST request, so after a repair done
+        // entirely in wp-admin it still names files that are back on disk.
+        // Verify before warning: a notice that tells an admin to fix what they
+        // just fixed teaches them to ignore the next one.
+        $broken = Repair::filterLive(EndpointRegistrar::broken());
         if ($broken === []) {
             return;
         }
