@@ -55,6 +55,18 @@ if (!function_exists('esc_html')) {
         return htmlspecialchars((string) $s, ENT_QUOTES, 'UTF-8');
     }
 }
+if (!function_exists('admin_url')) {
+    function admin_url($path = ''): string
+    {
+        return 'https://example.test/wp-admin/' . ltrim((string) $path, '/');
+    }
+}
+if (!function_exists('esc_url')) {
+    function esc_url($url): string
+    {
+        return htmlspecialchars((string) $url, ENT_QUOTES, 'UTF-8');
+    }
+}
 if (!function_exists('add_action')) {
     function add_action($hook, $cb, $priority = 10, $args = 1): bool
     {
@@ -132,6 +144,8 @@ check(
 check('mentions the scanner cause', stripos($html, 'malware scanner') !== false);
 check('names Imunify360 and Wordfence', strpos($html, 'Imunify360') !== false && strpos($html, 'Wordfence') !== false);
 check('says the rest of the site is fine', stripos($html, 'REST API, are unaffected') !== false);
+check('links to the Repair button', strpos($html, 'Repair now') !== false && strpos($html, 'rolepod-wp-settings') !== false);
+check('puts the ignore list before the repair', stripos($html, 'do this FIRST') !== false);
 check('counts them', strpos($html, '1 endpoint(s) could not start') !== false);
 
 // ---------------------------------------------------- 3. non-admins see none --

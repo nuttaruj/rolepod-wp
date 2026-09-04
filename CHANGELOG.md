@@ -4,6 +4,40 @@ All notable changes to this plugin are documented here. Follows [Keep a Changelo
 
 Plugin versions track `@rolepod/wplab` MCP family. See `MIN_COMPANION_VERSION` in `rolepod-wplab/src/companion/constants.ts` for the floor the MCP client expects.
 
+## [2.25.0] — 2026-09-04 — A Repair button, so a scanner hit is not a reinstall
+
+When a host malware scanner empties `src/Endpoint/ExecutePhp.php`, the way back
+was: download the release zip, Plugins → Add New → Upload, Replace current with
+uploaded. Three screens and a file manager for damage the plugin already knows
+about in full detail.
+
+### Added
+
+- **Repair now** button on Rolepod WP → Settings, shown only when endpoint files
+  are actually missing or empty on disk. It reinstalls **the version already
+  installed** over the current directory through WordPress's own
+  `Plugin_Upgrader` with `overwrite_package` — the same path the Upload screen
+  takes — so settings and activation state are untouched and no bespoke
+  download-and-write code exists in this plugin.
+- `src/Repair.php`, `tests/Unit/repair-test.php`.
+- The broken-endpoints notice now links to the button, and puts the ignore-list
+  step FIRST: repairing before the path is ignore-listed just feeds the next
+  scan.
+- Repair refuses when nothing is damaged (`NOTHING_TO_REPAIR`), and reports
+  `REPAIR_DID_NOT_STICK` when the files are empty again immediately after —
+  which means the scanner is winning and only an ignore-list entry will help.
+
+### Notes
+
+- **The repair URL is version-pinned on purpose.** `Updater` points at
+  `releases/latest` because an update moves forward; `Repair` builds
+  `releases/download/v<installed>/rolepod-wp.zip`, because "put my files back"
+  must never become a silent upgrade.
+- **No auto-repair, deliberately.** A plugin that silently rewrites its own PHP
+  whenever a file goes missing is behaving like malware persistence — recovery
+  after removal is the signature scanners hunt — and it would fight the scanner
+  in a loop nobody wins. Repair happens when an administrator asks, once.
+
 ## [2.24.3] — 2026-09-04 — Keep the broken-endpoint notice on our own screens
 
 2.24.2 put the notice on Dashboard and Plugins as well, on the theory that a

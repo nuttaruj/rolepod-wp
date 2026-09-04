@@ -7,6 +7,7 @@ use Rolepod\Wp\Audit\Log;
 use Rolepod\Wp\Audit\Notifier;
 use Rolepod\Wp\Config;
 use Rolepod\Wp\Guardian;
+use Rolepod\Wp\Repair;
 
 /**
  * Settings page — top-level submenu "Settings".
@@ -151,6 +152,7 @@ final class SettingsPage
 
             <!-- Right column -->
             <aside class="rp-stack">
+                <?php self::renderRepairCard(); ?>
                 <?php self::renderGuardianCard($guardianInstalled, $guardianPath, $recentFatals); ?>
                 <?php self::renderPluginInfoCard(); ?>
             </aside>
@@ -366,6 +368,43 @@ final class SettingsPage
         return self::iconPlug();
     }
 
+    /**
+     * Only rendered when endpoint files are actually missing or empty on disk.
+     * A repair button with nothing to repair is noise, and pressing it would
+     * still cost a download.
+     */
+    private static function renderRepairCard(): void
+    {
+        $damaged = Repair::damagedFiles();
+        if ($damaged === []) {
+            return;
+        }
+        ?>
+        <div class="rp-card">
+            <div class="rp-card-head" style="padding:14px 18px 12px;">
+                <h3 style="font-size:13.5px;">Repair endpoint files</h3>
+            </div>
+            <div style="padding:12px 18px;">
+                <p style="margin:0 0 10px;font-size:12px;color:var(--rp-text-muted);line-height:1.55;">
+                    <?php echo (int) count($damaged); ?> endpoint file(s) are missing or empty. Everything else &mdash; including this site&rsquo;s REST API &mdash; keeps working; only these endpoints are unavailable.
+                </p>
+                <div style="background:var(--rp-surface-sunken);border-radius:6px;padding:7px 9px;font-family:var(--rp-font-mono);font-size:11px;color:var(--rp-text-muted);word-break:break-all;margin-bottom:10px;">
+                    <?php foreach ($damaged as $rel): ?>
+                        <div>wp-content/plugins/rolepod-wp/<?php echo esc_html($rel); ?></div>
+                    <?php endforeach; ?>
+                </div>
+                <p style="margin:0 0 10px;font-size:12px;color:var(--rp-text-muted);line-height:1.55;">
+                    Repair reinstalls <strong>v<?php echo esc_html(ROLEPOD_WP_VERSION); ?></strong> &mdash; the version you already have, not the latest &mdash; from the official release, keeping your settings. <strong>Add the paths above to your malware scanner&rsquo;s ignore list first</strong>, or the next scan empties them again and this button will not help.
+                </p>
+                <form method="post" style="display:flex;gap:6px;flex-wrap:wrap;">
+                    <?php wp_nonce_field(self::NONCE_ACTION . '_guardian', 'rolepod_wp_guardian_nonce'); ?>
+                    <button type="submit" name="guardian_action" value="repair" class="rp-btn rp-btn-sm rp-btn-primary" data-rp-confirm="Reinstall v<?php echo esc_attr(ROLEPOD_WP_VERSION); ?> over the current files? Settings are kept.">Repair now</button>
+                </form>
+            </div>
+        </div>
+        <?php
+    }
+
     private static function handleGuardianAction(): ?array
     {
         if (!current_user_can('manage_options')) {
@@ -383,6 +422,15 @@ final class SettingsPage
                     return ['type' => 'success', 'message' => 'Guardian installed at <code>' . esc_html((string) $result['path']) . '</code>.'];
                 }
                 return ['type' => 'error', 'message' => 'Guardian install failed: <code>' . esc_html((string) ($result['error'] ?? 'UNKNOWN')) . '</code>'];
+            case 'repair':
+                $repair = Repair::run();
+                if ($repair['ok']) {
+                    return ['type' => 'success', 'message' => 'Reinstalled v' . esc_html(ROLEPOD_WP_VERSION) . '. ' . (int) count($repair['repaired'] ?? []) . ' endpoint file(s) restored.'];
+                }
+                return [
+                    'type' => $repair['error'] === 'REPAIR_DID_NOT_STICK' ? 'warning' : 'error',
+                    'message' => esc_html((string) ($repair['message'] ?? ('Repair failed: ' . ($repair['error'] ?? 'UNKNOWN')))),
+                ];
             case 'remove':
                 Guardian::remove();
                 return ['type' => 'warning', 'message' => 'Guardian removed. Reinstall to restore crash-recovery endpoints.'];

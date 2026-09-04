@@ -68,9 +68,11 @@ final class BrokenEndpointsNotice
 
         echo '<p><strong>To fix:</strong> add the path above to your scanner\'s ignore list '
             . '(Imunify360 → <em>Ignore List</em> → Add New File or Directory; Wordfence → '
-            . '<em>Scan Options</em> → Exclude files matching wildcard patterns), then reinstall '
-            . 'Rolepod for WordPress to restore the file. Without the ignore-list entry the next '
-            . 'scan will empty it again.</p>';
+            . '<em>Scan Options</em> → Exclude files matching wildcard patterns) — do this FIRST, '
+            . 'or the next scan empties the file again — then press <strong>Repair now</strong> on '
+            . '<a href="' . esc_url(Menu::url(Menu::SLUG_SETTINGS)) . '">Rolepod WP → Settings</a>. '
+            . 'Repair reinstalls the version you already have and keeps your settings; no manual '
+            . 'download, no re-upload.</p>';
 
         echo '<p>If you do not need the affected endpoint, you can leave it as it is — nothing else breaks.</p>';
 
