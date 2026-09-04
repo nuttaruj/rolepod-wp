@@ -4,6 +4,38 @@ All notable changes to this plugin are documented here. Follows [Keep a Changelo
 
 Plugin versions track `@rolepod/wplab` MCP family. See `MIN_COMPANION_VERSION` in `rolepod-wplab/src/companion/constants.ts` for the floor the MCP client expects.
 
+## [2.24.1] — 2026-09-04 — One dead endpoint no longer takes the whole REST API with it
+
+Found on a live site: a host malware scanner truncated
+`src/Endpoint/ExecutePhp.php` to **zero bytes**. That file exists to eval
+arbitrary PHP, so to a scanner it reads as a backdoor — the detection is
+correct, and it will keep happening on any scanned host.
+
+The damage came from us, not the scanner. The autoloader does
+`if (is_file($file)) { require $file; }`; an empty file requires cleanly and
+defines nothing, so `ExecutePhp::register()` raised
+`Uncaught Error: Class not found` **inside the `rest_api_init` handler**. Every
+REST route on the site returned HTTP 500 for thirteen days — core `wp/v2`
+routes, other plugins' routes, the block editor, everything. wp-admin and the
+front end stayed up, which is what made it hard to spot.
+
+### Fixed
+- Endpoint registration is now defensive. `Bootstrap\EndpointRegistrar`
+  registers each class inside a `class_exists()` check and a `Throwable`
+  catch, so a class that cannot load costs its own endpoint and nothing else.
+  The call site in `rolepod-wp.php` is guarded the same way, so even losing
+  the registrar itself cannot take down the site's REST API.
+
+### Added
+- `rolepod_wp_broken_endpoints` option records `class => reason` for anything
+  that failed to register, written only when the set changes (this path runs
+  on every REST request).
+- `GET /handshake` returns `broken_endpoints`, so wplab sees a degraded
+  companion instead of guessing why a tool is missing.
+- `tests/Unit/endpoint-registrar-test.php` — covers the missing class, a
+  throwing `register()`, the write-on-change policy, and asserts every class
+  in the list still maps to a non-empty file on disk.
+
 ## [2.24.0] — 2026-08-22 — One switch: full access vs guarded
 
 The companion no longer tries to decide whether the site is production — that

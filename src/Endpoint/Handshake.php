@@ -70,6 +70,10 @@ final class Handshake
             'siteurl' => (string) get_option('siteurl'),
             'access_mode' => Config::fullAccess() ? 'full' : 'guarded',
             'capabilities' => $capabilities,
+            // Endpoints that could not register on the last REST request —
+            // empty on a healthy install. A non-empty map means a class file
+            // is missing or empty (host malware scanners truncate ExecutePhp.php).
+            'broken_endpoints' => \Rolepod\Wp\Bootstrap\EndpointRegistrar::broken(),
             'abilities_api' => [
                 'available'  => \Rolepod\Wp\Abilities\Bridge::isAvailable(),
                 'registered' => \Rolepod\Wp\Abilities\Bridge::registered(),

@@ -5,7 +5,7 @@
  * Description:       The WordPress arm of the Rolepod ecosystem (https://github.com/nuttaruj/rolepod). Exposes guarded REST endpoints so AI coding agents (Claude Code / Cursor / Codex / Gemini) — driven by the rolepod-wplab MCP server — can run runtime introspection, the one-click pair wizard, and (with explicit opt-in) execute-php on this WordPress install. Endpoints are OFF by default; enable per-feature in Settings → Rolepod for WordPress. v2.6 adds a mu-plugin recovery guardian that survives main-plugin parse/fatal errors.
  * Author:            nuttaruj
  * Author URI:        https://github.com/nuttaruj
- * Version:           2.24.0
+ * Version:           2.24.1
  * Requires at least: 6.0
  * Requires PHP:      7.4
  * License:           MIT
@@ -21,7 +21,7 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-define('ROLEPOD_WP_VERSION', '2.24.0');
+define('ROLEPOD_WP_VERSION', '2.24.1');
 define('ROLEPOD_WP_FILE', __FILE__);
 define('ROLEPOD_WP_DIR', plugin_dir_path(__FILE__));
 
@@ -45,52 +45,15 @@ spl_autoload_register(static function (string $class): void {
 });
 
 add_action('rest_api_init', static function (): void {
-    // Fail-closed safe-mode gate — must arm before any endpoint so a mutating
-    // request is refused while safe-mode is on. Registered first for clarity;
-    // rest_pre_dispatch fires regardless of registration order.
-    \Rolepod\Wp\Security\SafeModeGuard::register();
-    \Rolepod\Wp\Endpoint\Handshake::register();
-    \Rolepod\Wp\Endpoint\Introspect::register();
-    \Rolepod\Wp\Endpoint\ExecutePhp::register();
-    \Rolepod\Wp\Endpoint\WpCli::register();
-    \Rolepod\Wp\Endpoint\FsRead::register();
-    \Rolepod\Wp\Endpoint\FsWrite::register();
-    \Rolepod\Wp\Endpoint\PhpSession::register();
-    \Rolepod\Wp\Endpoint\RequestObserver::register();
-    \Rolepod\Wp\Endpoint\Pair::register();
-    // v2.3 — change ledger
-    \Rolepod\Wp\Endpoint\Changes::register();
-    // v2.4 — pre-write syntax check + theme snapshot/restore
-    \Rolepod\Wp\Endpoint\SyntaxCheck::register();
-    \Rolepod\Wp\Endpoint\ThemeSnapshot::register();
-    // v2.5 — one-time admin login + file disable/enable + field-plugin adapters
-    \Rolepod\Wp\Endpoint\OneTimeLogin::register();
-    \Rolepod\Wp\Endpoint\FsRename::register();
-    // v2.7 — direct wp_options access (bypass REST /wp/v2/settings allowlist)
-    \Rolepod\Wp\Endpoint\Options::register();
-    // v2.7.2 — SELECT-only DB query endpoint (bypass wp-cli `db query` shell-escape + {prefix} placeholder hazards)
-    \Rolepod\Wp\Endpoint\DbQuery::register();
-    // v2.11 — wplab Phase 2 surface: atomic batch write, fs primitives, Elementor introspection.
-    \Rolepod\Wp\Endpoint\FsWriteBatch::register();
-    \Rolepod\Wp\Endpoint\DirEnsure::register();
-    \Rolepod\Wp\Endpoint\FsCopy::register();
-    \Rolepod\Wp\Endpoint\FsList::register();
-    \Rolepod\Wp\Endpoint\ElementorIntrospect::register();
-    // v2.12 — wplab Phase 3.2: widget data-attr rehydrate, template-apply, async jobs.
-    \Rolepod\Wp\Endpoint\ElementorWidgetAttribute::register();
-    \Rolepod\Wp\Endpoint\ElementorTemplateApply::register();
-    \Rolepod\Wp\Endpoint\JobCreate::register();
-    \Rolepod\Wp\Endpoint\JobStatus::register();
-    // v2.13 — site-owned agent skills (CPT-backed playbooks, progressive disclosure).
-    \Rolepod\Wp\Endpoint\Skills::register();
-    // v2.14 — bulk media optimize (recompress/downscale originals over a byte
-    // threshold; dry-run default, backup + ledger on apply).
-    \Rolepod\Wp\Endpoint\MediaOptimize::register();
-    // v2.17 — throttled site backup (create + inspect; restore is a later phase).
-    \Rolepod\Wp\Endpoint\Backup::register();
-    // v2.23 — import media from base64 / https url / wp-content local path
-    // (bounded per source; reversible media ledger row).
-    \Rolepod\Wp\Endpoint\MediaImport::register();
+    // Endpoint registration is deliberately defensive — see EndpointRegistrar.
+    // Guarded here too, so that losing the registrar itself costs only
+    // rolepod's own endpoints and never the whole site's REST API.
+    if (!class_exists(\Rolepod\Wp\Bootstrap\EndpointRegistrar::class)) {
+        return;
+    }
+
+    $failed = \Rolepod\Wp\Bootstrap\EndpointRegistrar::registerAll();
+    \Rolepod\Wp\Bootstrap\EndpointRegistrar::recordFailures($failed);
 });
 
 // v2.13 — register the skills CPT on init (register_post_type must run on `init`,
