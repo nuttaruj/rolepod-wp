@@ -63,9 +63,20 @@ if (!function_exists('add_action')) {
         return true;
     }
 }
-// get_current_screen() intentionally undefined — the notice then treats every
-// screen as relevant, which is the conservative branch.
+$GLOBALS['__screen_id'] = 'toplevel_page_rolepod-wp';
 
+if (!function_exists('get_current_screen')) {
+    function get_current_screen()
+    {
+        if ($GLOBALS['__screen_id'] === null) {
+            return null;
+        }
+
+        return (object) ['id' => $GLOBALS['__screen_id']];
+    }
+}
+
+require __DIR__ . '/../../src/Admin/Menu.php';
 require __DIR__ . '/../../src/Bootstrap/EndpointRegistrar.php';
 require __DIR__ . '/../../src/Admin/BrokenEndpointsNotice.php';
 
@@ -130,6 +141,32 @@ echo "a non-administrator sees nothing\n";
 $GLOBALS['__can'] = false;
 check('no output without manage_options', capture() === '');
 $GLOBALS['__can'] = true;
+
+// ------------------------------------------------- 3b. only Rolepod screens --
+
+echo "the notice stays off every screen but Rolepod's own\n"; // it is not urgent enough to clutter wp-admin
+
+$GLOBALS['__options'][EndpointRegistrar::OPTION] = [
+    'Rolepod\\Wp\\Endpoint\\ExecutePhp' => 'class not found — file missing or empty',
+];
+
+$GLOBALS['__screen_id'] = 'dashboard';
+check('silent on Dashboard', capture() === '');
+
+$GLOBALS['__screen_id'] = 'plugins';
+check('silent on Plugins', capture() === '');
+
+$GLOBALS['__screen_id'] = 'edit-post';
+check('silent on an unrelated screen', capture() === '');
+
+$GLOBALS['__screen_id'] = null;
+check('silent when there is no screen at all', capture() === '');
+
+$GLOBALS['__screen_id'] = 'rolepod-wp_page_rolepod-wp-settings';
+check('shown on the Rolepod settings screen', strpos(capture(), 'ExecutePhp') !== false);
+
+$GLOBALS['__screen_id'] = 'toplevel_page_rolepod-wp';
+check('shown on the Rolepod top-level screen', strpos(capture(), 'ExecutePhp') !== false);
 
 // ------------------------------------------------------------ 4. escaping --
 

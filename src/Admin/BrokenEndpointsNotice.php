@@ -18,13 +18,13 @@ use Rolepod\Wp\Bootstrap\EndpointRegistrar;
  * particular trims a file it cannot clean rather than deleting it. The fix is
  * an ignore-list entry, so the notice says exactly which path to add.
  *
+ * Shown on Rolepod's own admin screens and nowhere else — the person who can
+ * act on it is already here.
+ *
  * @package rolepod-wp
  */
 final class BrokenEndpointsNotice
 {
-    /** Screens noisy enough to matter, quiet enough not to nag. */
-    private const SCREENS = ['dashboard', 'plugins'];
-
     public static function register(): void
     {
         add_action('admin_notices', [self::class, 'render']);
@@ -77,19 +77,22 @@ final class BrokenEndpointsNotice
         echo '</div>';
     }
 
+    /**
+     * Rolepod's own screens only.
+     *
+     * Anyone who can act on this is already coming to Rolepod WP to do it, so
+     * there is nothing to gain by putting the notice on Dashboard or Plugins
+     * and a cluttered admin to lose. Fails closed: no screen, no notice.
+     */
     private static function onRelevantScreen(): bool
     {
         if (!function_exists('get_current_screen')) {
-            return true;
+            return false;
         }
 
         $screen = get_current_screen();
         if ($screen === null) {
-            return true;
-        }
-
-        if (in_array($screen->id, self::SCREENS, true)) {
-            return true;
+            return false;
         }
 
         return strpos((string) $screen->id, Menu::PARENT_SLUG) !== false;

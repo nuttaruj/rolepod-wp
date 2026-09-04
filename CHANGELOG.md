@@ -4,6 +4,20 @@ All notable changes to this plugin are documented here. Follows [Keep a Changelo
 
 Plugin versions track `@rolepod/wplab` MCP family. See `MIN_COMPANION_VERSION` in `rolepod-wplab/src/companion/constants.ts` for the floor the MCP client expects.
 
+## [2.24.3] — 2026-09-04 — Keep the broken-endpoint notice on our own screens
+
+2.24.2 put the notice on Dashboard and Plugins as well, on the theory that a
+degraded companion should be hard to miss. In practice that is someone else's
+admin to clutter, and anyone able to act on the notice is already on their way
+to Rolepod WP to do it.
+
+### Changed
+- `Admin\\BrokenEndpointsNotice` renders only on Rolepod's own admin screens.
+  Dashboard, Plugins and every other screen stay clean.
+- Screen detection now fails closed: no `get_current_screen()`, no notice.
+  Previously an unresolvable screen meant "show it everywhere", which is the
+  wrong default now that the notice is deliberately scoped.
+
 ## [2.24.2] — 2026-09-04 — Say so when a scanner empties an endpoint
 
 2.24.1 made a missing endpoint class survivable, which also made it silent.
