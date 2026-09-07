@@ -5,6 +5,7 @@ namespace Rolepod\Wp\Endpoint;
 
 use Rolepod\Wp\Audit\Log;
 use Rolepod\Wp\Config;
+use Rolepod\Wp\Fs\BackupRetention;
 use Rolepod\Wp\Security\SessionToken;
 use WP_REST_Request;
 use WP_REST_Response;
@@ -28,7 +29,9 @@ use WP_Error;
  *   5. STAGE              — write content to <absPath>.wplab-stage-<batchId>
  *                           for every entry (creates parent dirs as needed)
  *   6. BACKUP             — for every entry where target exists, copy to
- *                           <absPath>.wplab-bak-<batchId>
+ *                           <absPath>.wplab-bak-<batchId>, pruned after a
+ *                           successful commit to the newest few per file
+ *                           (BackupRetention).
  *   7. COMMIT             — rename(<stage>, <abs>) for every entry; the rename
  *                           is atomic within a single filesystem (always the
  *                           case for wp-content).
@@ -224,7 +227,7 @@ final class FsWriteBatch
         $backupPaths = [];
         foreach ($stagePaths as $i => $sp) {
             if (is_file($sp['abs'])) {
-                $bak = $sp['abs'] . '.wplab-bak-' . $batchId;
+                $bak = $sp['abs'] . BackupRetention::SUFFIX . $batchId;
                 if (!@copy($sp['abs'], $bak)) {
                     self::cleanupStageOnly($stagePaths);
                     self::cleanupBackups($backupPaths);
@@ -271,10 +274,20 @@ final class FsWriteBatch
             ], 500);
         }
 
+        // Commit stuck. Keep only the newest few backups per file — a batch
+        // that runs on every deploy would otherwise leave one copy per entry
+        // per run sitting in the install forever.
+        $prunedCount = 0;
+        foreach ($stagePaths as $sp) {
+            $prunedCount += count(BackupRetention::prune($sp['abs']));
+        }
+
         return new WP_REST_Response([
             'ok' => true,
             'batch_id' => $batchId,
             'written' => $written,
+            'backups_pruned' => $prunedCount,
+            'backups_kept' => BackupRetention::keep(),
             'preflight' => [
                 'php_lint_ran' => $phpLintRan,
                 'require_chain_ran' => $requireChainRan,

@@ -6,6 +6,7 @@ namespace Rolepod\Wp\Endpoint;
 use PharData;
 use Rolepod\Wp\Audit\Log;
 use Rolepod\Wp\Config;
+use Rolepod\Wp\Fs\BackupRetention;
 use Rolepod\Wp\Security\SessionToken;
 use WP_Error;
 use WP_REST_Request;
@@ -153,6 +154,18 @@ final class ThemeSnapshot
             $fileCount = -1;
         }
 
+        // A theme snapshot is a whole tar.gz of the theme dir — keeping one per
+        // edit fills uploads/ fast. Keep the newest few per stylesheet; an
+        // older snapshot_path handed to theme/restore may be gone, and the
+        // 404 it returns already names the missing file.
+        $prunedCount = count(BackupRetention::pruneGroup(
+            $dir,
+            $stylesheet . '-',
+            '.tar.gz',
+            null,
+            '/^\\d{8}-\\d{6}$/'
+        ));
+
         $auditId = Log::append([
             'endpoint' => 'theme/snapshot',
             'user' => (string) wp_get_current_user()->user_login,
@@ -167,6 +180,8 @@ final class ThemeSnapshot
             'path' => $gzPath,
             'bytes' => (int) filesize($gzPath),
             'file_count' => $fileCount,
+            'snapshots_pruned' => $prunedCount,
+            'snapshots_kept' => BackupRetention::keep(),
             'audit_id' => $auditId,
         ], 200);
     }

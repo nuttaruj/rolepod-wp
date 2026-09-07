@@ -4,6 +4,38 @@ All notable changes to this plugin are documented here. Follows [Keep a Changelo
 
 Plugin versions track `@rolepod/wplab` MCP family. See `MIN_COMPANION_VERSION` in `rolepod-wplab/src/companion/constants.ts` for the floor the MCP client expects.
 
+## [2.26.0] — 2026-09-07 — Backups stop piling up
+
+Every AI-driven file write copied the old file to `<file>.wplab-bak-<stamp>` and
+left it there. Nothing ever removed one. A site edited through Rolepod for a
+year carried a copy per write inside `wp-content`, and theme snapshots — a whole
+`.tar.gz` of the theme dir per edit — did the same to `uploads/`.
+
+### Changed
+
+- New `Rolepod\Wp\Fs\BackupRetention`: keeps the newest 2 copies of a file's
+  backups and deletes the rest. Applied after `/fs-write`, after a successful
+  `/fs-write-batch` commit, and to theme snapshots (newest 2 per stylesheet).
+  Raise it site-wide with `add_filter('rolepod_wp_backup_keep', fn() => 5)`;
+  the floor is 1, so a write always leaves something to restore by hand.
+- Ordering is by mtime with the filename as tie-break — batch backups are named
+  by batch id, not by a timestamp, so name order alone is not chronological. A
+  backup-of-a-backup (`foo.php.wplab-bak-A.wplab-bak-B`) is not part of any
+  group, so one file's prune never reaches into another's.
+- `/fs-write` backup names are collision-proof. `gmdate('Ymd-His')` has second
+  resolution, so two writes to one file inside the same second shared a name
+  and the second overwrote the first. A `-1`, `-2` counter is appended instead.
+- `/fs-write`, `/fs-write-batch` and `/theme-snapshot` responses report
+  `backups_pruned` / `snapshots_pruned` and `backups_kept` / `snapshots_kept`.
+
+Undoing an AI change does not read these files — `Audit\Toggler` restores the
+content snapshot held in the ledger row — so retention costs only the on-disk
+copy a human would dig out. A `snapshot_path` from an older session may now be
+gone; `/theme-restore` already answers `SNAPSHOT_NOT_FOUND` with the path.
+
+Full-site backups are unaffected: `Backup\Engine` has had its own retention
+(scheduled only, manual and imported archives are never auto-deleted).
+
 ## [2.25.1] — 2026-09-04 — Stop warning about damage that is already repaired
 
 Caught by installing 2.25.0 on the live site the Repair button was built for.

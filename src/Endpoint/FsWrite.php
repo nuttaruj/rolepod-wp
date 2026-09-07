@@ -5,6 +5,7 @@ namespace Rolepod\Wp\Endpoint;
 
 use Rolepod\Wp\Audit\Log;
 use Rolepod\Wp\Config;
+use Rolepod\Wp\Fs\BackupRetention;
 use Rolepod\Wp\Security\SessionToken;
 use WP_REST_Request;
 use WP_REST_Response;
@@ -99,10 +100,20 @@ final class FsWrite
         }
 
         $backupPath = null;
+        $pruned = [];
         if ((bool) $req->get_param('backup') && is_file($absPath)) {
-            $stamp = gmdate('Ymd-His');
-            $backupPath = $absPath . '.wplab-bak-' . $stamp;
+            // Second resolution alone collides when two writes land in the
+            // same second — the counter keeps both copies and keeps name
+            // order chronological.
+            $base = $absPath . BackupRetention::SUFFIX . gmdate('Ymd-His');
+            $backupPath = $base;
+            for ($n = 1; file_exists($backupPath); $n++) {
+                $backupPath = $base . '-' . $n;
+            }
             @copy($absPath, $backupPath);
+            // Keep only the newest few copies — otherwise every AI write leaves
+            // one more file in the install and nothing ever collects them.
+            $pruned = BackupRetention::prune($absPath);
         }
 
         $content = (string) $req->get_param('content');
@@ -128,6 +139,8 @@ final class FsWrite
             'absolute_path' => $absPath,
             'bytes_written' => $written,
             'backup_path' => $backupPath,
+            'backups_pruned' => count($pruned),
+            'backups_kept' => BackupRetention::keep(),
         ], 200);
     }
 
