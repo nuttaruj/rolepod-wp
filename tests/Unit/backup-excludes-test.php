@@ -29,6 +29,7 @@ function check(string $label, $got, $want): void
 $rc = new ReflectionClass(Engine::class);
 $defaults = $rc->getReflectionConstant('DEFAULT_EXCLUDES')->getValue();
 $excluded = $rc->getMethod('excluded');
+if (PHP_VERSION_ID < 80100) { $excluded->setAccessible(true); } // no-op and deprecated on 8.1+
 $ex = static fn(string $rel, array $extra = []): bool => $excluded->invoke(null, $rel, array_merge($defaults, $extra));
 
 echo "Backup\\Engine::excluded\n";
@@ -73,6 +74,7 @@ foreach (['languages/nl_NL.mo', 'languages/wpml/a.mo', 'languages/plugins/p-nl_N
     file_put_contents($content . '/' . $f, 'x');
 }
 $bfl = $rc->getMethod('buildFileList');
+if (PHP_VERSION_ID < 80100) { $bfl->setAccessible(true); }
 $run = static function (array $comp) use ($bfl, $content, $defaults): array {
     $list = $content . '/list.txt';
     $bfl->invoke(null, ['components' => $comp, 'exclude' => $defaults, 'files' => ['list_path' => $list]]);

@@ -16,7 +16,9 @@ Two backup defects broke restored multilingual sites.
   leading `/` anchors it to the start of the wp-content-relative path. The
   generic `cache/` default is replaced by the anchored `/uploads/cache`.
   User-supplied `exclude[]` values use the same rules (`cache` now means a
-  directory or file named exactly `cache`, anywhere). `src/Backup/Engine.php`.
+  directory or file named exactly `cache`, anywhere). Partial-name and
+  extension values such as `.log` or `*.zip` no longer match anything.
+  `src/Backup/Engine.php`.
 - **`wp-content/languages/` was never backed up.** New `languages` component
   (core, plugin and theme `.mo/.po/.json/.l10n.php`, plus `languages/wpml`).
   Default on for manual and scheduled backups; accepted by `/backup-start`,
