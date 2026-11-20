@@ -220,7 +220,11 @@ final class Engine
 
             $job['updated_at'] = time();
             // A slower overlapping worker (pre-2.27.3 lock) must not clobber a
-            // job another worker already finished.
+            // job another worker already finished. Drop the in-request options
+            // cache first: tick() already read the row, so raw() would return
+            // this worker's own stale 'running' copy on hosts without a
+            // persistent object cache.
+            wp_cache_delete(self::JOB_OPTION, 'options');
             $stored = self::raw();
             if (($stored['id'] ?? null) === ($job['id'] ?? null) && ($stored['status'] ?? '') === 'done') {
                 return self::statusFrom($stored);
