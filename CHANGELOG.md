@@ -4,6 +4,10 @@ All notable changes to this plugin are documented here. Follows [Keep a Changelo
 
 Plugin versions track `@rolepod/wplab` MCP family. See `MIN_COMPANION_VERSION` in `rolepod-wplab/src/companion/constants.ts` for the floor the MCP client expects.
 
+## [2.27.3] — 2026-11-20 — Backup finalize holds its lock
+
+- Fix: finalize held the 60 s tick lock while `ZipArchive::close()` rewrote a ~600 MB archive for minutes, so cron started a new overlapping finalize every minute; the stacked workers exhausted PHP and returned 503 on the live site. Finalize now holds the lock for up to an hour, and a worker that finishes after the job is already `done` no longer overwrites it. `src/Backup/Engine.php`.
+
 ## [2.27.2] — 2026-11-20 — Backup finalize streams database.sql
 
 - Fix: finalize read the whole `database.sql` into memory (`file_get_contents`) before zipping it, so a 569 MB dump exceeded `memory_limit`, fataled, and the job re-ran finalize forever at 96%. The dump is now added with `ZipArchive::addFile` and streamed from disk at close. A failed `close()` now errors the job (`ZIP_CLOSE_FAILED`) instead of marking it done with a broken zip. A job already stuck in finalize completes on the next tick after upgrading. `src/Backup/Engine.php`.

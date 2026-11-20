@@ -37,6 +37,10 @@ final class Engine
     private const TICK_BUDGET_S = 12.0;
     private const SLEEP_US = 0;
     private const LOCK_TTL = 60;
+    // finalize's ZipArchive::close() rewrites the whole archive (minutes on a
+    // ~1 GB site). With the 60 s lock, cron started a new finalize every minute
+    // and the overlapping workers exhausted PHP and 503'd the live site.
+    private const FINALIZE_LOCK_TTL = 3600;
     private const MAX_FILES = 200_000;
 
     private const DEFAULT_EXCLUDES = [
@@ -204,6 +208,7 @@ final class Engine
                         $job = self::stepFiles($job, $start);
                         break;
                     case 'finalize':
+                        set_transient(self::LOCK, time(), self::FINALIZE_LOCK_TTL);
                         $job = self::stepFinalize($job);
                         break;
                 }
@@ -214,6 +219,12 @@ final class Engine
             }
 
             $job['updated_at'] = time();
+            // A slower overlapping worker (pre-2.27.3 lock) must not clobber a
+            // job another worker already finished.
+            $stored = self::raw();
+            if (($stored['id'] ?? null) === ($job['id'] ?? null) && ($stored['status'] ?? '') === 'done') {
+                return self::statusFrom($stored);
+            }
             update_option(self::JOB_OPTION, $job, false);
 
             if (in_array($job['status'], ['done', 'error'], true)) {
