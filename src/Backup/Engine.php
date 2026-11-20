@@ -111,7 +111,7 @@ final class Engine
             'exclude' => array_values(array_unique(array_merge(self::DEFAULT_EXCLUDES, (array) ($opts['exclude'] ?? [])))),
             'zip_path' => $dir . '/' . $disk . '.zip',
             'build_dir' => $buildDir,
-            'db' => ['tables' => Db::tables(), 'tidx' => 0, 'roffset' => 0, 'sql_path' => $buildDir . '/database.sql', 'rows' => 0],
+            'db' => ['tables' => Db::tables(), 'tidx' => 0, 'roffset' => 0, 'cursor' => null, 'sql_path' => $buildDir . '/database.sql', 'rows' => 0],
             'files' => ['list_path' => $buildDir . '/filelist.txt', 'cursor' => 0, 'total' => 0, 'added' => 0, 'listed' => false],
             'stats' => ['db_bytes' => 0, 'db_tables' => 0, 'files_count' => 0, 'files_bytes' => 0, 'zip_bytes' => 0],
             'started_at' => time(),
@@ -244,9 +244,15 @@ final class Engine
 
             if ($job['db']['roffset'] === 0) {
                 @file_put_contents($sqlPath, Db::schemaSql($table), FILE_APPEND);
+                $job['db']['cursor'] = Db::cursorFor($table);
+            } elseif (!is_array($job['db']['cursor'] ?? null)) {
+                // Job started on <= 2.27.0 and caught mid-table: it only has an
+                // offset. Finish this table by offset; later tables get a key cursor.
+                $job['db']['cursor'] = ['mode' => 'offset', 'offset' => $job['db']['roffset']];
             }
 
-            $chunk = Db::rowsSql($table, $job['db']['roffset'], self::ROW_BATCH);
+            $chunk = Db::batchSql($table, $job['db']['cursor'], self::ROW_BATCH);
+            $job['db']['cursor'] = $chunk['cursor'];
             if ($chunk['rows'] > 0) {
                 @file_put_contents($sqlPath, $chunk['sql'], FILE_APPEND);
                 $job['db']['roffset'] += $chunk['rows'];
@@ -256,11 +262,12 @@ final class Engine
                 // Table drained — advance.
                 $job['db']['tidx']++;
                 $job['db']['roffset'] = 0;
+                $job['db']['cursor'] = null;
                 $job['stats']['db_tables']++;
             }
             // Persist per batch so the live poll sees the DB stage move smoothly
             // (durable: the SQL is already appended to the temp file, roffset
-            // marks our position).
+            // and cursor mark our position).
             update_option(self::JOB_OPTION, $job, false);
             usleep(self::SLEEP_US);
         }

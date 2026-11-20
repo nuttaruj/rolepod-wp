@@ -4,6 +4,10 @@ All notable changes to this plugin are documented here. Follows [Keep a Changelo
 
 Plugin versions track `@rolepod/wplab` MCP family. See `MIN_COMPANION_VERSION` in `rolepod-wplab/src/companion/constants.ts` for the floor the MCP client expects.
 
+## [2.27.1] — 2026-11-20 — Backup pages big tables by key, not OFFSET
+
+- Fix: the database dump paged rows with `LIMIT offset, n`, which rescans every earlier row each chunk (O(n²)). On a 4.5M-row table (`wp_wsal_metadata`) a production backup slowed the live site to 40 s homepage timeouts. Tables with a single-column PRIMARY KEY (or single-column UNIQUE NOT NULL index) of integer/string type now page with `WHERE key > last ORDER BY key LIMIT n`; composite/missing keys keep OFFSET. A job already mid-table from 2.27.0 finishes that table by offset. `src/Backup/Db.php`, `src/Backup/Engine.php`.
+
 ## [2.27.0] — 2026-11-20 — Backups keep cache plugins and translations
 
 Two backup defects broke restored multilingual sites.
