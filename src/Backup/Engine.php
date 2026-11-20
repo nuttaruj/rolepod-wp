@@ -40,7 +40,11 @@ final class Engine
     private const MAX_FILES = 200_000;
 
     private const DEFAULT_EXCLUDES = [
-        '.git', 'node_modules', '.DS_Store', 'cache/',
+        // Excludes match whole PATH SEGMENTS, never substrings (see excluded()).
+        // '/uploads/cache' is anchored to the start of the wp-content-relative
+        // path: only the top-level uploads page-cache dir. A generic 'cache'
+        // would drop plugins/litespeed-cache and vendor/symfony/cache.
+        '.git', 'node_modules', '.DS_Store', '/uploads/cache',
         // Rolepod's own regenerable runtime artifacts — not site content, and
         // they bloat the archive badly (theme snapshots + the bundled wp-cli
         // phar can be tens of MB). Never back these up by default.
@@ -52,7 +56,7 @@ final class Engine
     /**
      * Start a new backup. Replaces any finished job; refuses if one is running.
      *
-     * @param array{db?:bool,uploads?:bool,themes?:bool,plugins?:bool,muplugins?:bool} $components
+     * @param array{db?:bool,uploads?:bool,themes?:bool,plugins?:bool,muplugins?:bool,languages?:bool} $components
      * @param array{compress?:bool,exclude?:string[]} $opts
      * @return array<string,mixed>
      */
@@ -93,6 +97,7 @@ final class Engine
             'themes' => (bool) ($components['themes'] ?? true),
             'plugins' => (bool) ($components['plugins'] ?? false),
             'muplugins' => (bool) ($components['muplugins'] ?? false),
+            'languages' => (bool) ($components['languages'] ?? true),
         ];
 
         $job = [
@@ -358,7 +363,7 @@ final class Engine
             ];
         }
 
-        foreach (['uploads', 'themes', 'plugins', 'muplugins'] as $c) {
+        foreach (['uploads', 'themes', 'plugins', 'muplugins', 'languages'] as $c) {
             if (!empty($job['components'][$c])) {
                 $components[$c] = ['path' => 'files/' . self::componentRel($c)];
             }
@@ -397,6 +402,9 @@ final class Engine
         if (!empty($job['components']['muplugins'])) {
             $roots['muplugins'] = 'mu-plugins';
         }
+        if (!empty($job['components']['languages'])) {
+            $roots['languages'] = 'languages';
+        }
 
         $fh = @fopen($job['files']['list_path'], 'w');
         if ($fh === false) {
@@ -434,11 +442,35 @@ final class Engine
         return $count;
     }
 
+    /**
+     * Segment-based exclude match against a wp-content-relative path.
+     *
+     * A pattern is split on '/' into segments; it matches when those segments
+     * appear as a consecutive run among the path's segments (directory or file
+     * name). 'node_modules' matches any segment of that name; 'rolepod-wp/backups'
+     * matches that two-segment run anywhere. A leading '/' anchors the run to the
+     * start of the path ('/uploads/cache'). Trailing slashes are ignored. No
+     * substring or wildcard matching: 'cache' never matches 'litespeed-cache'.
+     *
+     * @param string[] $excludes
+     */
     private static function excluded(string $rel, array $excludes): bool
     {
+        $segs = array_values(array_filter(explode('/', str_replace('\\', '/', $rel)), static fn($x) => $x !== ''));
+        $n = count($segs);
         foreach ($excludes as $ex) {
-            if ($ex !== '' && strpos($rel, $ex) !== false) {
-                return true;
+            $ex = str_replace('\\', '/', (string) $ex);
+            $anchored = isset($ex[0]) && $ex[0] === '/';
+            $pat = array_values(array_filter(explode('/', $ex), static fn($x) => $x !== ''));
+            $m = count($pat);
+            if ($m === 0 || $m > $n) {
+                continue;
+            }
+            $last = $anchored ? 0 : $n - $m;
+            for ($i = 0; $i <= $last; $i++) {
+                if (array_slice($segs, $i, $m) === $pat) {
+                    return true;
+                }
             }
         }
         return false;

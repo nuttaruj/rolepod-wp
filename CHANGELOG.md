@@ -4,6 +4,29 @@ All notable changes to this plugin are documented here. Follows [Keep a Changelo
 
 Plugin versions track `@rolepod/wplab` MCP family. See `MIN_COMPANION_VERSION` in `rolepod-wplab/src/companion/constants.ts` for the floor the MCP client expects.
 
+## [2.27.0] — 2026-11-20 — Backups keep cache plugins and translations
+
+Two backup defects broke restored multilingual sites.
+
+- **Excludes matched substrings.** The default `cache/` dropped every path
+  containing "cache/": `plugins/litespeed-cache/`, `plugins/w3-total-cache/`,
+  and composer libraries such as `vendor/symfony/cache`. `.git` also dropped
+  `.github` and `.gitignore`. Excludes now match whole path segments. A value
+  with `/` matches that run of consecutive segments (`rolepod-wp/backups`); a
+  leading `/` anchors it to the start of the wp-content-relative path. The
+  generic `cache/` default is replaced by the anchored `/uploads/cache`.
+  User-supplied `exclude[]` values use the same rules (`cache` now means a
+  directory or file named exactly `cache`, anywhere). `src/Backup/Engine.php`.
+- **`wp-content/languages/` was never backed up.** New `languages` component
+  (core, plugin and theme `.mo/.po/.json/.l10n.php`, plus `languages/wpml`).
+  Default on for manual and scheduled backups; accepted by `/backup-start`,
+  the New backup form and the Schedule form. Restore already writes any
+  `files/**` path under wp-content with the zip-slip guard, so old backups
+  without languages restore unchanged. `src/Backup/Engine.php`,
+  `src/Backup/Schedule.php`, `src/Admin/BackupPage.php`.
+
+Test: `php tests/Unit/backup-excludes-test.php`.
+
 ## [2.26.0] — 2026-09-07 — Backups stop piling up
 
 Every AI-driven file write copied the old file to `<file>.wplab-bak-<stamp>` and

@@ -35,6 +35,7 @@ final class Schedule
                 'themes' => (bool) ($comp['themes'] ?? true),
                 'plugins' => (bool) ($comp['plugins'] ?? false),
                 'muplugins' => (bool) ($comp['muplugins'] ?? false),
+                'languages' => (bool) ($comp['languages'] ?? true),
             ],
             'compress' => (bool) ($raw['compress'] ?? true),
             'retention' => min(50, max(0, (int) ($raw['retention'] ?? 0))),

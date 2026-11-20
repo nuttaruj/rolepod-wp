@@ -220,6 +220,7 @@ final class BackupPage
                 self::checkbox('c_themes', 'Themes', true);
                 self::checkbox('c_plugins', 'Plugins', false);
                 self::checkbox('c_muplugins', 'mu-plugins', false);
+                self::checkbox('c_languages', 'Languages (translations, WPML)', true);
                 ?>
                 <label style="display:flex;align-items:center;gap:8px;margin-top:6px;border-top:1px solid var(--rp-border);padding-top:10px;">
                     <input type="checkbox" name="compress" value="1" checked>
@@ -264,6 +265,7 @@ final class BackupPage
                 self::checkbox('sch_c_themes', 'Themes', $cfg['components']['themes']);
                 self::checkbox('sch_c_plugins', 'Plugins', $cfg['components']['plugins']);
                 self::checkbox('sch_c_muplugins', 'mu-plugins', $cfg['components']['muplugins']);
+                self::checkbox('sch_c_languages', 'Languages', $cfg['components']['languages']);
                 ?>
                 <label style="display:flex;align-items:center;gap:8px;border-top:1px solid var(--rp-border);padding-top:8px;">
                     <input type="checkbox" name="sch_compress" value="1" <?php checked($cfg['compress']); ?>>
@@ -648,6 +650,7 @@ final class BackupPage
                     'themes' => isset($_POST['c_themes']),
                     'plugins' => isset($_POST['c_plugins']),
                     'muplugins' => isset($_POST['c_muplugins']),
+                    'languages' => isset($_POST['c_languages']),
                 ];
                 $r = Engine::start($components, ['compress' => isset($_POST['compress'])]);
                 if (empty($r['ok'])) {
@@ -682,6 +685,7 @@ final class BackupPage
                         'themes' => isset($_POST['sch_c_themes']),
                         'plugins' => isset($_POST['sch_c_plugins']),
                         'muplugins' => isset($_POST['sch_c_muplugins']),
+                        'languages' => isset($_POST['sch_c_languages']),
                     ],
                 ]);
                 return ['type' => 'success', 'message' => isset($_POST['sch_enabled']) ? 'Schedule saved — automatic backups are on.' : 'Schedule saved — automatic backups are off.'];
