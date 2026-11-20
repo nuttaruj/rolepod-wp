@@ -81,5 +81,36 @@ check('readEntry missing error', $missing['error'], 'ENTRY_NOT_FOUND');
 
 @unlink($zipPath);
 
+// --- finalize path: stream a multi-MB dump via addFile, incl. resume --------
+$sqlPath = sys_get_temp_dir() . '/rp-backup-big-' . getmypid() . '.sql';
+$fh = fopen($sqlPath, 'wb');
+for ($i = 0; $i < 3000; $i++) {
+    fwrite($fh, "INSERT INTO t VALUES ($i, '" . bin2hex(random_bytes(1000)) . "');\n");
+}
+fclose($fh);
+check('sql fixture is multi-MB', filesize($sqlPath) > 5 * 1024 * 1024, true);
+
+$bigZip = sys_get_temp_dir() . '/rp-backup-big-' . getmypid() . '.zip';
+@unlink($bigZip);
+// A previous tick that already committed a (stale) database.sql, then a resume.
+$a0 = Archive::openForAppend($bigZip);
+$a0->addStringSmart('database.sql', 'STALE PARTIAL');
+$a0->addStringSmart('files/x.txt', 'keep');
+check('seed close ok', $a0->close(), true);
+
+$a1 = Archive::openForAppend($bigZip);
+check('addFileSmart sql ok', $a1->addFileSmart($sqlPath, 'database.sql'), true);
+$a1->addStringSmart('manifest.json', '{}');
+check('close ok', $a1->close(), true);
+
+$za = new ZipArchive();
+$za->open($bigZip);
+check('database.sql replaced, not duplicated (3 entries)', $za->numFiles, 3);
+check('database.sql byte-identical', md5((string) $za->getFromName('database.sql')) === md5_file($sqlPath), true);
+check('other entry kept', $za->getFromName('files/x.txt'), 'keep');
+$za->close();
+@unlink($sqlPath);
+@unlink($bigZip);
+
 echo "\n$count checks, $failures failures\n";
 exit($failures === 0 ? 0 : 1);

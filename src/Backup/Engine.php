@@ -353,8 +353,12 @@ final class Engine
         // database.sql + meta (browsable individually inside the zip).
         $components = [];
         if ($job['components']['db'] && is_file($job['db']['sql_path'])) {
-            $sql = (string) file_get_contents($job['db']['sql_path']);
-            $archive->addStringSmart('database.sql', $sql);
+            // addFile streams from disk at close(); never load the dump into memory
+            // (a 569 MB database.sql fataled past memory_limit). sql_path must
+            // outlive close() — cleanupBuild runs after it.
+            if (!$archive->addFileSmart($job['db']['sql_path'], 'database.sql')) {
+                throw new \RuntimeException('ZIP_ADD_FAILED database.sql');
+            }
             $archive->addStringSmart('database.meta.json', (string) wp_json_encode([
                 'tables' => $job['stats']['db_tables'],
                 'rows' => $job['db']['rows'],
@@ -381,7 +385,9 @@ final class Engine
         // semantic index regardless of physical order; readers fetch it by name.
         $manifest = Manifest::build($job, $components);
         $archive->addStringSmart('manifest.json', (string) wp_json_encode($manifest, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
-        $archive->close();
+        if (!$archive->close()) {
+            throw new \RuntimeException('ZIP_CLOSE_FAILED');
+        }
 
         $job['stats']['zip_bytes'] = is_file($job['zip_path']) ? (int) filesize($job['zip_path']) : 0;
         $job['status'] = 'done';
