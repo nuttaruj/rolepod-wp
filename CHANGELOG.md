@@ -4,6 +4,10 @@ All notable changes to this plugin are documented here. Follows [Keep a Changelo
 
 Plugin versions track `@rolepod/wplab` MCP family. See `MIN_COMPANION_VERSION` in `rolepod-wplab/src/companion/constants.ts` for the floor the MCP client expects.
 
+## [2.27.6] — 2026-11-23 — Header version matches
+
+- Fix: the 2.27.5 plugin header still read `Version: 2.27.4`, so WordPress showed the wrong version. Same code as 2.27.5. `rolepod-wp.php`.
+
 ## [2.27.5] — 2026-11-23 — Restore stops on a failed SQL statement
 
 - Fix: the restore importer ran each statement with `$wpdb->query()` and ignored the result, so a failed DROP / CREATE / INSERT was swallowed and the job still reported `done` with the old tables in place. A failed statement now stops the restore with `SQL_FAILED: <db error> | <statement head>` in the job's `error`. `src/Backup/RestoreEngine.php`, `tests/Unit/restore-sql-error-test.php`.
