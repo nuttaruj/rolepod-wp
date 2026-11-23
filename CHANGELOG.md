@@ -4,6 +4,10 @@ All notable changes to this plugin are documented here. Follows [Keep a Changelo
 
 Plugin versions track `@rolepod/wplab` MCP family. See `MIN_COMPANION_VERSION` in `rolepod-wplab/src/companion/constants.ts` for the floor the MCP client expects.
 
+## [2.27.8] — 2026-11-23 — Restore job survives its own options table
+
+- Fix: the restore job lives in the options table, and a DB restore drops and recreates that table. The next `update_option()` then UPDATEd a row that no longer existed, the job vanished, and a multi-tick restore stopped right after the options table with every later table still old. The job is now saved with an upsert and read past the object cache. Small DBs that finished in one tick were not affected. `src/Backup/RestoreEngine.php`, `tests/Unit/restore-job-save-test.php`.
+
 ## [2.27.7] — 2026-11-23 — Restore runs every DROP TABLE
 
 - Fix: the restore importer buffered the `-- Table: x` comment together with the `DROP TABLE IF EXISTS` after it; the combined statement began with `--` and was skipped as a comment. Restoring over tables that already existed then failed every CREATE and INSERT (silently before 2.27.5), leaving the old data in place. Comment and blank lines between statements are now dropped before buffering. `src/Backup/RestoreEngine.php`, `tests/Unit/restore-sql-parse-test.php`.

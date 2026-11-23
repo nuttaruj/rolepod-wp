@@ -164,7 +164,7 @@ final class RestoreEngine
                 $job['completed_at'] = time();
                 self::cleanupBuild($job);
             }
-            update_option(self::JOB_OPTION, $job, false);
+            self::save($job);
             if (in_array($job['status'], ['done', 'error'], true)) {
                 self::unschedule();
             }
@@ -605,8 +605,27 @@ final class RestoreEngine
         @rmdir($bd);
     }
 
+    /**
+     * Persist the job with an upsert. A DB restore drops and recreates the
+     * options table this row lives in; update_option() then UPDATEs a row that
+     * no longer exists, reports failure, and the job vanished mid-restore.
+     */
+    private static function save(array $job): void
+    {
+        global $wpdb;
+        $wpdb->query($wpdb->prepare(
+            "INSERT INTO {$wpdb->options} (option_name, option_value, autoload) VALUES (%s, %s, 'off')"
+            . ' ON DUPLICATE KEY UPDATE option_value = VALUES(option_value)',
+            self::JOB_OPTION,
+            maybe_serialize($job)
+        ));
+        wp_cache_delete(self::JOB_OPTION, 'options');
+        wp_cache_delete('notoptions', 'options');
+    }
+
     private static function raw(): array
     {
+        wp_cache_delete(self::JOB_OPTION, 'options');
         $j = get_option(self::JOB_OPTION, []);
         return is_array($j) ? $j : [];
     }
