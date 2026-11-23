@@ -4,6 +4,10 @@ All notable changes to this plugin are documented here. Follows [Keep a Changelo
 
 Plugin versions track `@rolepod/wplab` MCP family. See `MIN_COMPANION_VERSION` in `rolepod-wplab/src/companion/constants.ts` for the floor the MCP client expects.
 
+## [2.27.7] — 2026-11-23 — Restore runs every DROP TABLE
+
+- Fix: the restore importer buffered the `-- Table: x` comment together with the `DROP TABLE IF EXISTS` after it; the combined statement began with `--` and was skipped as a comment. Restoring over tables that already existed then failed every CREATE and INSERT (silently before 2.27.5), leaving the old data in place. Comment and blank lines between statements are now dropped before buffering. `src/Backup/RestoreEngine.php`, `tests/Unit/restore-sql-parse-test.php`.
+
 ## [2.27.6] — 2026-11-23 — Header version matches
 
 - Fix: the 2.27.5 plugin header still read `Version: 2.27.4`, so WordPress showed the wrong version. Same code as 2.27.5. `rolepod-wp.php`.

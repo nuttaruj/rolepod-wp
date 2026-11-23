@@ -256,6 +256,14 @@ final class RestoreEngine
                 $job['stage'] = self::stageAfterDb($job);
                 return $job;
             }
+            // A comment or blank line between statements is dropped here. Left
+            // in the buffer it glued onto the next statement, which then
+            // started with "--" and was skipped whole (every "-- Table: x"
+            // header swallowed the DROP TABLE after it).
+            if ($buffer === '' && (trim($line) === '' || strpos(ltrim($line), '--') === 0)) {
+                $job['db']['offset'] = ftell($fh);
+                continue;
+            }
             $buffer .= $line;
             // Statements end with ";" at end of a line. Values never contain a
             // raw newline (escaped at dump time), so this boundary is safe.
