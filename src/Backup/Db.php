@@ -219,14 +219,18 @@ final class Db
         return self::format($t, $rows) + ['cursor' => $cursor];
     }
 
-    /** Quote a cell value safely for SQL. */
+    /**
+     * Quote a cell value safely for SQL. `_real_escape()` swaps every `%` for
+     * wpdb's per-request placeholder hash; that hash means nothing on the site
+     * that restores the dump, so it is turned back into `%` here.
+     */
     private static function value($v): string
     {
         global $wpdb;
         if ($v === null) {
             return 'NULL';
         }
-        return "'" . $wpdb->_real_escape((string) $v) . "'";
+        return "'" . $wpdb->remove_placeholder_escape($wpdb->_real_escape((string) $v)) . "'";
     }
 
     /** Escape a backtick identifier. */

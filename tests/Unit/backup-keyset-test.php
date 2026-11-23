@@ -49,6 +49,11 @@ final class FakeWpdb
     {
         return addslashes($s);
     }
+
+    public function remove_placeholder_escape(string $s): string
+    {
+        return $s;
+    }
 }
 
 $fails = 0;

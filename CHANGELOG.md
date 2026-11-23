@@ -4,6 +4,10 @@ All notable changes to this plugin are documented here. Follows [Keep a Changelo
 
 Plugin versions track `@rolepod/wplab` MCP family. See `MIN_COMPANION_VERSION` in `rolepod-wplab/src/companion/constants.ts` for the floor the MCP client expects.
 
+## [2.27.4] — 2026-11-23 — Backup dump keeps `%` intact
+
+- Fix: `database.sql` wrote every `%` as wpdb's per-request placeholder hash (`{64 hex}`), because `Backup\Db::value()` quoted cells with `$wpdb->_real_escape()` and never called `remove_placeholder_escape()`. A restore on another site wrote the hashes into the DB, so permalinks, Yoast / Rank Math title templates, URL-encoded slugs, CSS percentages and salts came back corrupted. Backups made before 2.27.4 carry the hashes and should be re-taken. `src/Backup/Db.php`, `tests/Unit/backup-value-escape-test.php`.
+
 ## [2.27.3] — 2026-11-20 — Backup finalize holds its lock
 
 - Fix: finalize held the 60 s tick lock while `ZipArchive::close()` rewrote a ~600 MB archive for minutes, so cron started a new overlapping finalize every minute; the stacked workers exhausted PHP and returned 503 on the live site. Finalize now holds the lock for up to an hour, and a worker that finishes after the job is already `done` no longer overwrites it. `src/Backup/Engine.php`.
