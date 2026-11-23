@@ -288,6 +288,12 @@ final class RestoreEngine
         if ($stmt === '' || strpos($stmt, '--') === 0) {
             return;
         }
+        // A live site keeps serving requests while a table is dropped and
+        // refilled; a plugin's add_option() can land a row first and the
+        // dump's INSERT then hits a duplicate key. REPLACE lets the dump win.
+        if (strncasecmp($stmt, 'INSERT INTO', 11) === 0) {
+            $stmt = 'REPLACE INTO' . substr($stmt, 11);
+        }
         // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
         $result = $wpdb->query($stmt);
         // A failed statement must stop the restore: swallowing it reported

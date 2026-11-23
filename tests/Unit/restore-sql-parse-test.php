@@ -48,7 +48,7 @@ $want = [
     'SET FOREIGN_KEY_CHECKS=0;',
     'DROP TABLE IF EXISTS `wp_options`;',
     "CREATE TABLE `wp_options` (\n  `option_id` bigint(20) NOT NULL\n);",
-    "INSERT INTO `wp_options` (`option_id`) VALUES\n(1),\n(2);",
+    "REPLACE INTO `wp_options` (`option_id`) VALUES\n(1),\n(2);",
     'DROP TABLE IF EXISTS `wp_posts`;',
 ];
 $fails = 0;

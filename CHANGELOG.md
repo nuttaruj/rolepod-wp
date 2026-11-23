@@ -4,6 +4,10 @@ All notable changes to this plugin are documented here. Follows [Keep a Changelo
 
 Plugin versions track `@rolepod/wplab` MCP family. See `MIN_COMPANION_VERSION` in `rolepod-wplab/src/companion/constants.ts` for the floor the MCP client expects.
 
+## [2.27.9] — 2026-11-23 — Restore wins races with live traffic
+
+- Fix: a restore on a site that keeps serving requests failed with `SQL_FAILED: Duplicate entry ... for key 'option_name'`. Between the options table being dropped and refilled, a plugin's `add_option()` on another request inserted its own row first, the dump's INSERT hit the duplicate key, and the restore stopped with the options table almost empty and the site down. Dump INSERTs now run as REPLACE, so the backup's row wins. `src/Backup/RestoreEngine.php`, `tests/Unit/restore-sql-parse-test.php`.
+
 ## [2.27.8] — 2026-11-23 — Restore job survives its own options table
 
 - Fix: the restore job lives in the options table, and a DB restore drops and recreates that table. The next `update_option()` then UPDATEd a row that no longer existed, the job vanished, and a multi-tick restore stopped right after the options table with every later table still old. The job is now saved with an upsert and read past the object cache. Small DBs that finished in one tick were not affected. `src/Backup/RestoreEngine.php`, `tests/Unit/restore-job-save-test.php`.
