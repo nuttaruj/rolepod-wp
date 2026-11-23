@@ -281,7 +281,13 @@ final class RestoreEngine
             return;
         }
         // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
-        $wpdb->query($stmt);
+        $result = $wpdb->query($stmt);
+        // A failed statement must stop the restore: swallowing it reported
+        // "done" while DROP / CREATE / INSERT silently left the old tables.
+        if ($result === false || (string) ($wpdb->last_error ?? '') !== '') {
+            $head = substr(preg_replace('/\s+/', ' ', $stmt) ?? '', 0, 120);
+            throw new \RuntimeException('SQL_FAILED: ' . (string) ($wpdb->last_error ?? 'unknown error') . ' | ' . $head);
+        }
     }
 
     /** Stage to enter once db import finishes: rewrite (if a map is set) → files → done. */

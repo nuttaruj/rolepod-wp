@@ -4,6 +4,10 @@ All notable changes to this plugin are documented here. Follows [Keep a Changelo
 
 Plugin versions track `@rolepod/wplab` MCP family. See `MIN_COMPANION_VERSION` in `rolepod-wplab/src/companion/constants.ts` for the floor the MCP client expects.
 
+## [2.27.5] — 2026-11-23 — Restore stops on a failed SQL statement
+
+- Fix: the restore importer ran each statement with `$wpdb->query()` and ignored the result, so a failed DROP / CREATE / INSERT was swallowed and the job still reported `done` with the old tables in place. A failed statement now stops the restore with `SQL_FAILED: <db error> | <statement head>` in the job's `error`. `src/Backup/RestoreEngine.php`, `tests/Unit/restore-sql-error-test.php`.
+
 ## [2.27.4] — 2026-11-23 — Backup dump keeps `%` intact
 
 - Fix: `database.sql` wrote every `%` as wpdb's per-request placeholder hash (`{64 hex}`), because `Backup\Db::value()` quoted cells with `$wpdb->_real_escape()` and never called `remove_placeholder_escape()`. A restore on another site wrote the hashes into the DB, so permalinks, Yoast / Rank Math title templates, URL-encoded slugs, CSS percentages and salts came back corrupted. Backups made before 2.27.4 carry the hashes and should be re-taken. `src/Backup/Db.php`, `tests/Unit/backup-value-escape-test.php`.

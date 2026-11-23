@@ -21,7 +21,7 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-define('ROLEPOD_WP_VERSION', '2.27.4');
+define('ROLEPOD_WP_VERSION', '2.27.5');
 define('ROLEPOD_WP_FILE', __FILE__);
 define('ROLEPOD_WP_DIR', plugin_dir_path(__FILE__));
 
